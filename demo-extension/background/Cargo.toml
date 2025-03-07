@@ -1,0 +1,40 @@
+[package]
+authors = { workspace = true }
+description = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+name = "background"
+repository = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+common = { path = "../common" }
+
+
+chrono = { workspace = true, features = ["wasmbind"] }
+futures = { workspace = true }
+
+console_error_panic_hook = "0.1.7"
+gloo-utils = "0.2.0"
+js-sys = "0.3.77"
+serde-wasm-bindgen = "0.6.5"
+tracing-wasm = { version = "0.2.1" }
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+wasm-logger = { version = "0.2.0" }
+web-sys = { version = "0.3.77", features = ["Document", "Element", "EventTarget", "Location", "NodeList", "Window", "console"] }
+
+anyhow = { workspace = true }
+bon = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+uuid = { workspace = true, features = ["js", "serde", "v4"] }
+
+
+[build-dependencies]
+dotenvy = { git = "https://github.com/allan2/dotenvy.git", features = ["macros"] }

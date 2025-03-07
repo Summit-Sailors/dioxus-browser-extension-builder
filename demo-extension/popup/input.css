@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body,
+html {
+  @apply bg-gray-900 text-white flex flex-col h-full font-poppins tracking-wide w-[500px];
+}
+
+/* Override specific classes */
+.bg-gray-100 {
+  @apply bg-gray-800;
+}
+
+.border {
+  @apply border-gray-700;
+}
+
+textarea,
+input {
+  @apply bg-gray-800 text-white border-gray-700;
+}
+
+select {
+  -webkit-appearance: none; /* For Safari */
+  -moz-appearance: none; /* For Firefox */
+  appearance: none; /* For modern browsers */
+}
+
+input[type="range"] {
+  -webkit-appearance: none; /* Hides the slider so that custom slider can be made */
+  width: 100%; /* Specific width is required for Firefox. */
+  background: transparent; /* Otherwise white in Chrome */
+}
+
+input[type="range"]:focus {
+  outline: none; /* Removes the blue border. You should probably do some kind of focus styling for accessibility reasons though. */
+}
+
+input[type="range"]::-ms-track {
+  width: 100%;
+  cursor: pointer;
+
+  /* Hides the slider so custom styles can be added */
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
+}
+
+/* Special styling for WebKit/Blink */
+input[type="range"]::-webkit-slider-thumb {
+  @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
+}
+
+/* All the same stuff for Firefox */
+input[type="range"]::-moz-range-thumb {
+  @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
+}
+
+/* All the same stuff for IE */
+input[type="range"]::-ms-thumb {
+  @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  @apply w-full h-0.5 cursor-pointer bg-indigo-400 rounded hover:bg-indigo-500 focus-visible:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+input[type="range"]::-moz-range-track {
+  @apply w-full h-0.5 cursor-pointer bg-indigo-400 rounded hover:bg-indigo-500 focus-visible:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+input[type="range"]::-ms-track {
+  @apply w-full h-0.5 cursor-pointer bg-indigo-400 rounded hover:bg-indigo-500 focus-visible:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+}

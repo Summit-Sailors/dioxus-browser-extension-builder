@@ -1,0 +1,39 @@
+{
+  "name": "extension",
+  "version": "1.0",
+  "description": "extension",
+  "permissions": ["activeTab", "storage", "scripting", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "content_security_policy": {
+  "extension_pages": "script-src 'wasm-unsafe-eval' 'self'; object-src 'self';"
+  },
+  "content_scripts": [
+    {
+      "run_at": "document_start",
+      "matches": ["*://*/*"],
+      "js": ["content_index.js"],
+      "resources": ["content.js"]
+    },
+    {
+      "run_at": "document_start",
+      "matches": ["*://*/*"],
+      "js": ["index.js"],
+      "resources": ["index.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["*.js", "*.wasm", "*.css", "snippets/**/*", "assets/**/*"],
+      "matches": ["*://*/*"]
+    }
+  ],
+  "background": {
+    "service_worker": "background_index.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "User script"
+  },
+  "manifest_version": 3
+}
