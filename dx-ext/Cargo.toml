@@ -14,10 +14,12 @@ futures = { workspace = true }
 lowdash = { version = "0.5.3" }
 more-itertools = { version = "0.1.6" }
 notify = { version = "8.0.0" }
+serde = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
-tokio = { version = "1.43.0", features = ["full"] }
+tokio = { version = "1.44.0", features = ["full"] }
 tokio-util = { version = "0.7.13" }
+toml = "0.8.20"
 tracing = { version = "0.1.41" }
 tracing-subscriber = { version = "0.3.19" }
 

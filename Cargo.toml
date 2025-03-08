@@ -1,9 +1,13 @@
 [workspace.package]
-authors = []
-description = ""
-edition = "2024"
-license = ""
-repository = ""
+authors = ["Jeremy Meek", "Stephen Oketch"]
+categories = ["development-tools", "wasm", "web-programming"]
+description = "A browser extension builder for dioxus"
+edition = "2021"
+keywords = ["browser", "builder", "chrome", "extension", "wasm"]
+license = "MIT"
+repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
+rust-version = "1.84.0"
+version = "0.1.0"
 
 
 [workspace]
@@ -40,13 +44,6 @@ inherits = "dev"
 
 [workspace.dependencies]
 
-# frontend
-maestro-forms = { path = "../dioxus-maestro/frontend/maestro-forms" }
-maestro-hooks = { path = "../dioxus-maestro/frontend/maestro-hooks", features = ["web"] }
-maestro-toast = { path = "../dioxus-maestro/frontend/maestro-toast", features = ["web"] }
-maestro-ui = { path = "../dioxus-maestro/frontend/maestro-ui" }
-
-
 anyhow = "1.0.97"
 bon = "3.4.0"
 chrono = { version = "0.4.40", features = ["serde"] }
@@ -68,6 +65,7 @@ dioxus-logger = "0.6.2"
 dioxus-sdk = { git = "https://github.com/DioxusLabs/sdk.git", features = ["timing"] }
 
 tailwind_fuse = { version = "0.3.2", features = ["variant"] }
+
 
 [workspace.lints.rust]
 unsafe_code = "deny"

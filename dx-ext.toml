@@ -1,0 +1,6 @@
+[extension-config]
+assets-directory = "popup/assets"                    # your assets directory relative to the extension directory
+background-script-index-name = "background_index.js" # name of your background script entry point
+content-script-index-name = "content_index.js"       # name of your content script entry point
+extension-directory-name = "demo-extension"          # name of your extension directory
+popup-name = "popup"                                 # name of your popup crate

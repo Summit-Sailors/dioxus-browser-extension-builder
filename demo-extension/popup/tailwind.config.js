@@ -6,7 +6,6 @@ module.exports = {
     "./src/**/*.{rs,html,css}",
     // include all html files in the output (dist) directory
     "./dist/**/*.html",
-    "../../dioxus-maestro/frontend/**/*.{rs,html,css}",
   ],
   theme: {
     extend: {

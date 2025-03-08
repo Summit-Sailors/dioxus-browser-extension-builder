@@ -18,7 +18,10 @@
 chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
   if (request.action === "extractContent") {
     try {
-      if (window.contentMain && typeof window.contentMain.extract === "function") {
+      if (
+        window.contentMain &&
+        typeof window.contentMain.extract === "function"
+      ) {
         const extractedContent = await window.contentMain.extract(request.mode);
         sendResponse({ content: extractedContent });
       } else {
