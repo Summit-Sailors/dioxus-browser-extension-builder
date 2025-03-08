@@ -6,32 +6,27 @@ use {
 
 #[wasm_bindgen(start)]
 pub fn init_background() -> Result<(), JsValue> {
-  console_error_panic_hook::set_once();
+	console_error_panic_hook::set_once();
 
-  let global = js_sys::global();
+	let global = js_sys::global();
 
-  let chrome = js_sys::Reflect::get(&global, &JsValue::from_str("chrome")).expect("Expected 'chrome' property in global object");
-  let runtime = js_sys::Reflect::get(&chrome, &JsValue::from_str("runtime")).expect("Expected 'runtime' property on chrome object");
-  let on_message = js_sys::Reflect::get(&runtime, &JsValue::from_str("onMessage")).expect("Expected 'onMessage' property on runtime");
-  let add_listener = js_sys::Reflect::get(&on_message, &JsValue::from_str("addListener")).expect("Expected 'addListener' property on onMessage");
+	let chrome = js_sys::Reflect::get(&global, &JsValue::from_str("chrome")).expect("Expected 'chrome' property in global object");
+	let runtime = js_sys::Reflect::get(&chrome, &JsValue::from_str("runtime")).expect("Expected 'runtime' property on chrome object");
+	let on_message = js_sys::Reflect::get(&runtime, &JsValue::from_str("onMessage")).expect("Expected 'onMessage' property on runtime");
+	let add_listener = js_sys::Reflect::get(&on_message, &JsValue::from_str("addListener")).expect("Expected 'addListener' property on onMessage");
 
-  let closure = Closure::wrap(Box::new(move |message: JsValue| {
-    spawn_local(async move {
-      handle_message(message).await;
-    });
-  }) as Box<dyn FnMut(JsValue)>);
+	let closure = Closure::wrap(Box::new(move |message: JsValue| {
+		spawn_local(async move {
+			handle_message(message).await;
+		});
+	}) as Box<dyn FnMut(JsValue)>);
 
-  js_sys::Reflect::apply(
-    &add_listener.dyn_into::<js_sys::Function>()?,
-    &on_message,
-    &js_sys::Array::of1(closure.as_ref().unchecked_ref())
-  )?;
+	js_sys::Reflect::apply(&add_listener.dyn_into::<js_sys::Function>()?, &on_message, &js_sys::Array::of1(closure.as_ref().unchecked_ref()))?;
 
-  closure.forget();
+	closure.forget();
 
-  Ok(())
+	Ok(())
 }
-
 
 async fn handle_message(event: JsValue) {
 	if let Ok(message) = serde_wasm_bindgen::from_value::<Message>(event) {

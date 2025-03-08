@@ -1,14 +1,15 @@
-use clap::{Parser, Subcommand};
-use serde::Deserialize;
-use std::fs;
-use tracing_subscriber::FmtSubscriber;
 use {
 	anyhow::{Context, Result},
+	clap::{ArgAction, Args, Parser, Subcommand, ValueHint, command},
+	dialoguer::Input,
 	futures::future::{join_all, try_join_all},
 	lowdash::find_uniques,
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
+	rayon::iter::{IntoParallelRefIterator, ParallelIterator},
+	serde::Deserialize,
 	std::{
 		collections::HashSet,
+		fs,
 		path::{Path, PathBuf},
 		process::Stdio,
 		sync::LazyLock,
@@ -21,7 +22,10 @@ use {
 	},
 	tokio_util::sync::CancellationToken,
 	tracing::{Level, error, info, warn},
-	tracing_subscriber::fmt::{format::Writer, time::FormatTime},
+	tracing_subscriber::{
+		FmtSubscriber,
+		fmt::{format::Writer, time::FormatTime},
+	},
 };
 
 static PENDING_BUILDS: LazyLock<Mutex<HashSet<ExtensionCrate>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -161,27 +165,55 @@ impl EFile {
 		}
 	}
 
+	fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+		fs::create_dir_all(dst)?;
+
+		let entries: Vec<_> = fs::read_dir(src)?.collect::<Result<Vec<_>, _>>()?;
+		entries.par_iter().try_for_each(|entry| {
+			let ty = entry.file_type()?;
+			let src_path = entry.path();
+			let dst_path = dst.join(entry.file_name());
+
+			if ty.is_dir() {
+				Self::copy_dir_all(&src_path, &dst_path)
+			} else {
+				fs::copy(&src_path, &dst_path).map(|_| ()).context(format!("Failed to copy file from {src_path:?} to {dst_path:?}"))
+			}
+		})?;
+
+		Ok(())
+	}
+
 	async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
 		info!("Copying {:?}...", self);
 		let src = self.get_copy_src(config);
 		let dest = self.get_copy_dest(config);
-		let status = Command::new("cp")
-			.args([
-				"-fr",
-				src.to_str().with_context(|| format!("Invalid source path: {src:?}"))?,
-				dest.to_str().with_context(|| format!("Invalid destination path: {dest:?}"))?,
-			])
-			.stdout(Stdio::null())
-			.stderr(Stdio::null())
-			.status()
-			.await
-			.context("Failed to execute cp")?;
-		if !status.success() {
-			warn!("copy for {:?} failed with status: {}", self, status);
-		} else {
-			info!("[SUCCESS] copy for {:?}", self);
+
+		if let Some(parent) = dest.parent() {
+			fs::create_dir_all(parent).with_context(|| format!("Failed to create directory: {parent:?}"))?;
 		}
-		Ok(())
+
+		let result = if src.is_dir() {
+			Self::copy_dir_all(&src, &dest).with_context(|| format!("Failed to copy directory from {src:?} to {dest:?}"))
+		} else {
+			let src_clone = src.clone();
+			let dest_clone = dest.clone();
+			tokio::task::spawn_blocking(move || {
+				fs::copy(&src_clone, &dest_clone).map(|_| ()).with_context(|| format!("Failed to copy file from {src_clone:?} to {dest_clone:?}"))
+			})
+			.await?
+		};
+
+		match result {
+			Ok(_) => {
+				info!("[SUCCESS] copy for {:?}", self);
+				Ok(())
+			},
+			Err(e) => {
+				warn!("copy for {:?} failed: {}", self, e);
+				Err(e)
+			},
+		}
 	}
 
 	// the file path string for file watching
@@ -248,8 +280,40 @@ async fn hot_reload(config: ExtConfig) -> Result<()> {
 	Ok(())
 }
 
+// Configuration options for the Init command
+#[derive(Args, Debug)]
+struct InitOptions {
+	/// Extension directory name
+	#[arg(long, help = "Name of your extension directory", default_value = "extension", value_hint = ValueHint::DirPath)]
+	extension_dir: String,
+
+	/// Popup crate name
+	#[arg(long, help = "Name of your popup crate", default_value = "popup")]
+	popup_name: String,
+
+	/// Background script entry point
+	#[arg(long, help = "Name of your background script entry point", default_value = "background_index.js")]
+	background_script: String,
+
+	/// Content script entry point
+	#[arg(long, help = "Name of your content script entry point", default_value = "content_index.js")]
+	content_script: String,
+
+	/// Assets directory
+	#[arg(long, help = "Your assets directory relative to the extension directory", default_value = "popup/assets", value_hint = ValueHint::DirPath)]
+	assets_dir: String,
+
+	/// Force overwrite existing config file
+	#[arg(short, long, help = "Force overwrite of existing config file", action = ArgAction::SetTrue)]
+	force: bool,
+
+	/// Interactive mode to collect configuration
+	#[arg(short, long, help = "Interactive mode to collect configuration", action = ArgAction::SetTrue)]
+	interactive: bool,
+}
+
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(name = "dx-ext", author = "Summit Sailors", version, about = "CLI tool for building browser extensions using dioxus", long_about = None)]
 struct Cli {
 	#[command(subcommand)]
 	command: Commands,
@@ -257,12 +321,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-	/// start the file watcher and build system
+	/// Start the file watcher and build system
 	Watch,
-	/// build all crates and copy files without watching
+	/// Build all crates and copy files without watching
 	Build,
-	/// create a default cofiguration file
-	Init,
+	/// Create a configuration file with customizable options
+	Init(InitOptions),
 }
 
 #[tokio::main]
@@ -271,22 +335,29 @@ async fn main() -> Result<()> {
 
 	FmtSubscriber::builder().with_max_level(Level::INFO).with_timer(CustomTime).init();
 
-	// configuration from TOML file
-	let config = read_config().context("Failed to read configuration")?;
-	info!("Using extension directory: {}", config.extension_directory_name);
-	info!("Popup crate: {}", config.popup_name);
-	info!("Background script: {}", config.background_script_index_name);
-	info!("Content script: {}", config.content_script_index_name);
-	info!("Assets directory: {}", config.assets_dir);
-
 	match cli.command {
 		Commands::Watch => {
+			// configuration from TOML file
+			let config = read_config().context("Failed to read configuration")?;
+			info!("Using extension directory: {}", config.extension_directory_name);
+			info!("Popup crate: {}", config.popup_name);
+			info!("Background script: {}", config.background_script_index_name);
+			info!("Content script: {}", config.content_script_index_name);
+			info!("Assets directory: {}", config.assets_dir);
+
 			hot_reload(config).await?;
 		},
 		Commands::Build => {
-			let config_clone = config.clone();
+			// configuration from TOML file
+			let config = read_config().context("Failed to read configuration")?;
+			info!("Using extension directory: {}", config.extension_directory_name);
+			info!("Popup crate: {}", config.popup_name);
+			info!("Background script: {}", config.background_script_index_name);
+			info!("Content script: {}", config.content_script_index_name);
+			info!("Assets directory: {}", config.assets_dir);
+
 			let build_futures = ExtensionCrate::iter().map(|crate_type| crate_type.build_crate(&config));
-			let copy_futures = EFile::iter().map(|e_file| e_file.copy_file_to_dist(&config_clone));
+			let copy_futures = EFile::iter().map(|e_file| e_file.copy_file_to_dist(&config));
 
 			let (build_result, copy_result) = tokio::join!(try_join_all(build_futures), try_join_all(copy_futures));
 			if let Err(e) = build_result {
@@ -296,9 +367,9 @@ async fn main() -> Result<()> {
 				error!("Error during copy: {}", e);
 			}
 		},
-		Commands::Init => {
-			create_default_config_toml()?;
-			info!("Created default dx-ext.toml configuration file");
+		Commands::Init(options) => {
+			create_default_config_toml(&options)?;
+			info!("Created dx-ext.toml configuration file");
 		},
 	}
 
@@ -376,15 +447,63 @@ async fn process_pending_events(config: &ExtConfig) {
 	}
 }
 
-// to create a default config TOML
-pub fn create_default_config_toml() -> Result<()> {
-	let default_config = r#"[extension-config]
-assets-directory = "popup/assets"                    # your assets directory relative to the extension directory
-background-script-index-name = "background_index.js" # name of your background script entry point
-content-script-index-name = "content_index.js"       # name of your content script entry point
-extension-directory-name = "demo-extension"          # name of your extension directory
-popup-name = "popup"                                 # name of your popup crate
-"#;
+// to create a config TOML with user input from clap
+fn create_default_config_toml(options: &InitOptions) -> Result<()> {
+	println!("Welcome to the Dioxus Browser Extension Builder Setup");
 
-	fs::write("dx-ext.toml", default_config).context("Failed to write default dx-ext.toml file")
+	if Path::new("dx-ext.toml").exists() && !options.force {
+		println!("Config file already exists. Use --force to overwrite.");
+		return Ok(());
+	}
+
+	let extension_dir = if options.interactive {
+		Input::new().with_prompt("Enter extension directory name").default(options.extension_dir.clone()).interact_text()?
+	} else {
+		options.extension_dir.clone()
+	};
+
+	let popup_name = if options.interactive {
+		Input::new().with_prompt("Enter popup crate name").default(options.popup_name.clone()).interact_text()?
+	} else {
+		options.popup_name.clone()
+	};
+
+	let background_script = if options.interactive {
+		Input::new().with_prompt("Enter background script entry point").default(options.background_script.clone()).interact_text()?
+	} else {
+		options.background_script.clone()
+	};
+
+	let content_script = if options.interactive {
+		Input::new().with_prompt("Enter content script entry point").default(options.content_script.clone()).interact_text()?
+	} else {
+		options.content_script.clone()
+	};
+
+	let assets_dir = if options.interactive {
+		Input::new().with_prompt("Enter assets directory").default(options.assets_dir.clone()).interact_text()?
+	} else {
+		options.assets_dir.clone()
+	};
+
+	let config_content = format!(
+		r#"[extension-config]
+assets-directory = "{assets_dir}"                    # your assets directory relative to the extension directory
+background-script-index-name = "{background_script}"        # name of your background script entry point
+content-script-index-name = "{content_script}"           # name of your content script entry point
+extension-directory-name = "{extension_dir}"            # name of your extension directory
+popup-name = "{popup_name}"                          # name of your popup crate
+"#
+	);
+
+	fs::write("dx-ext.toml", config_content).context("Failed to write dx-ext.toml file")?;
+
+	println!("Configuration created successfully:");
+	println!("  Extension directory: {extension_dir}");
+	println!("  Popup crate: {popup_name}");
+	println!("  Background script: {background_script}");
+	println!("  Content script: {content_script}");
+	println!("  Assets directory: {assets_dir}");
+
+	Ok(())
 }

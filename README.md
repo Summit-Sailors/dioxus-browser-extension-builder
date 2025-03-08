@@ -1,6 +1,6 @@
 # Dioxus Browser Extension Builder
 
-A CLI tool for building and developing browser extension with Dioxus and WebAssembly.
+A CLI tool for building and developing browser extensions with Dioxus and WebAssembly.
 
 ## Overview
 
@@ -16,8 +16,8 @@ and WebAssembly. This tool handles:
 
 ### Prerequisites
 
-- Rust(stable)
-- wasm-paack
+- Rust (stable)
+- wasm-pack
 
 ### From source
 
@@ -25,40 +25,50 @@ and WebAssembly. This tool handles:
 git clone https://github.com/Summit-Sailors/dioxus-browser-extension-builder.git
 cd dioxus-browser-extension-builder
 cargo install --path ./dx-ext
-
 ```
 
-## Usage
-
-### Basic Commands
+## Quick Start
 
 ```bash
-dx-ext init # Generate a default comfig
-dx-ext build # Build the extension (one time build)
-dx-ext watch # Start the development server with hot reload
+# Generate a default configuration file
+dx-ext init
 
+# Build the extension (one-time build)
+dx-ext build
+
+# Start the development server with hot reload
+dx-ext watch
 ```
 
 ## Command Details
 
-`dx-ext` init
+### `dx-ext init`
 
 Creates a default `dx-ext.toml` configuration file in the current directory.
 
 ```bash
+# Create with default values
 dx-ext init
 
+# Create with custom values
+dx-ext init --extension-dir my-extension --popup-name my-popup --background-script bg.js --content-script cs.js --assets-dir assets
 ```
 
-This will generate a configuration file in the current directory with default settings that you can customize for your extension
+Options:
 
-`dx-ext build`
+- `--extension-dir`: Name of your extension directory (default: "extension")
+- `--popup-name`: Name of your popup crate (default: "popup")
+- `--background-script`: Name of your background script entry point (default: "background_index.js")
+- `--content-script`: Name of your content script entry point (default: "content_index.js")
+- `--assets-dir`: Your assets directory relative to the extension directory (default: "popup/assets")
+- `--force, -f`: Force overwrite of existing config file
 
-Builds all crates and copies necessary files to the distribution directory without watching the changes.
+### `dx-ext build`
+
+Builds all crates and copies necessary files to the distribution directory without watching for changes.
 
 ```bash
 dx-ext build
-
 ```
 
 This command:
@@ -66,34 +76,32 @@ This command:
 1. Builds all extension crates (popup, background, content) with `wasm-pack`
 2. Copies all the required files to the distribution directory
 
-`dx-ext watch`
+### `dx-ext watch`
 
-Starts the file watcher and automatically rebuilds components when file changes
+Starts the file watcher and automatically rebuilds components when files change.
 
 ```bash
 dx-ext watch
-
 ```
 
-This Command:
+This command:
 
 1. Builds all extension components initially
 2. Watches for file changes in the extension directory
 3. Rebuilds and copies files as needed when changes are detected
-4. Press ^C to stop the watcher
+4. Press Ctrl+C to stop the watcher
 
 ## Configuration
 
-The tool is configured using a `dx-ext.toml` file in the porject root
+The tool is configured using a `dx-ext.toml` file in the project root:
 
 ```toml
 [extension-config]
 assets-directory = "popup/assets"                    # your assets directory relative to the extension directory
 background-script-index-name = "background_index.js" # name of your background script entry point
 content-script-index-name = "content_index.js"       # name of your content script entry point
-extension-directory-name = "demo-extension"          # name of your extension directory
+extension-directory-name = "extension"               # name of your extension directory
 popup-name = "popup"                                 # name of your popup crate
-
 ```
 
 ### Configuration Options
@@ -103,7 +111,7 @@ popup-name = "popup"                                 # name of your popup crate
 | `assets-directory`             | Path to your assets directory relative to the extension directory | `"popup/assets"`        |
 | `background-script-index-name` | Name of your background script entry point                        | `"background_index.js"` |
 | `content-script-index-name`    | Name of your content script entry point                           | `"content_index.js"`    |
-| `extension-directory-name`     | Name of your extension directory                                  | `"demo-extension"`      |
+| `extension-directory-name`     | Name of your extension directory                                  | `"extension"`           |
 | `popup-name`                   | Name of your popup crate                                          | `"popup"`               |
 
 ## Project Structure
@@ -111,9 +119,9 @@ popup-name = "popup"                                 # name of your popup crate
 A typical project structure for a Dioxus browser extension:
 
 ```
-your-extension/
+your-project/
 ├── dx-ext.toml                   # Extension configuration
-├── your-extension-dir/           # Defined by extension-directory-name in config
+├── extension/                    # Defined by extension-directory-name in config
 │   ├── background/               # Background script crate
 │   │   ├── Cargo.toml
 │   │   └── src/
@@ -138,12 +146,13 @@ your-extension/
 ## Development Flow
 
 1. Create a new extension project or navigate to an existing one
-2. Configure your extension in `dx-ext.toml`
-3. Run `dx-ext watch` to start the development server
-4. Make changes to your Rust code or extension files
-5. The tool will automatically rebuild and copy files as needed
-6. Load your extension from the `dist` directory in your browser
-7. When ready for production, run `dx-ext build` to create a final build
+2. Run `dx-ext init` to create the default configuration, or customize with options
+3. Adjust your extension settings in `dx-ext.toml` if needed
+4. Run `dx-ext watch` to start the development server
+5. Make changes to your Rust code or extension files
+6. The tool will automatically rebuild and copy files as needed
+7. Load your extension from the `dist` directory in your browser
+8. When ready for production, run `dx-ext build` to create a final build
 
 ## Extension Components
 
