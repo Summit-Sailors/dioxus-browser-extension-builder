@@ -1,11 +1,11 @@
 # Dioxus Browser Extension Builder
 
-A CLI tool for building and developing browser extensions with Dioxus and WebAssembly.
+A CLI tool for building browser extensions with Dioxus.
 
 ## Overview
 
-The Dioxus Browser Extension Builder (`dx-ext`) is a utility that simplifies the development and building of browser extensions using Dioxus (a Rust-based reactive UI framework)
-and WebAssembly. This tool handles:
+The Dioxus Browser Extension Builder (`dx-ext`) is a utility that simplifies the development and building of browser extensions using [Dioxus](https://dioxuslabs.com/)
+This tool handles:
 
 - Building WASM components from your Rust code
 - Copying necessary assets and configuration files
@@ -52,6 +52,9 @@ dx-ext init
 
 # Create with custom values
 dx-ext init --extension-dir my-extension --popup-name my-popup --background-script bg.js --content-script cs.js --assets-dir assets
+
+# Create interactively
+dx-ext init --interactive
 ```
 
 Options:
@@ -62,6 +65,7 @@ Options:
 - `--content-script`: Name of your content script entry point (default: "content_index.js")
 - `--assets-dir`: Your assets directory relative to the extension directory (default: "popup/assets")
 - `--force, -f`: Force overwrite of existing config file
+- `--interactive, -i`: Interactive mode to collect configuration
 
 ### `dx-ext build`
 
@@ -154,21 +158,27 @@ your-project/
 7. Load your extension from the `dist` directory in your browser
 8. When ready for production, run `dx-ext build` to create a final build
 
-## Extension Components
+## File Watching
 
-The tool handles three main components of browser extensions:
+The watcher monitors:
 
-### Popup
+- All source files in the crate directories for changes
+- Extension configuration files (manifest.json, HTML, JS files)
+- Shared API code (when detected in the paths)
+- Assets directory
 
-The popup UI that appears when clicking the extension icon. Built from the Rust crate specified by the `popup-name` configuration.
+Changes trigger specific rebuilds:
 
-### Background Script
+- Changes to source files rebuild only the affected crates
+- Changes to shared API code rebuild all crates
+- Changes to extension files only copy the modified files
 
-A script that runs in the background of the browser. Built from the `background` crate.
+## Performance Features
 
-### Content Script
-
-A script that runs in the context of web pages. Built from the `content` crate.
+- Parallel file copying operations using Rayon
+- Debounced builds to prevent multiple rebuilds when many files change at once
+- Cancellation token system for graceful shutdown
+- Asynchronous operations for non-blocking performance
 
 ## Troubleshooting
 
