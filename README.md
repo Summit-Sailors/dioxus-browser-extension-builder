@@ -66,6 +66,8 @@ Options:
 - `--assets-dir`: Your assets directory relative to the extension directory (default: "popup/assets")
 - `--force, -f`: Force overwrite of existing config file
 - `--interactive, -i`: Interactive mode to collect configuration
+- `--mode, -m`: Build mode: development or release (default: "development")
+- `--clean, -c`: Clean build (remove dist directory first)
 
 ### `dx-ext build`
 
@@ -73,6 +75,12 @@ Builds all crates and copies necessary files to the distribution directory witho
 
 ```bash
 dx-ext build
+
+# For clean builds
+dx-ext build --clean # to remove previous build artifacts
+
+# For release builds
+dx-ext build --mode release
 ```
 
 This command:

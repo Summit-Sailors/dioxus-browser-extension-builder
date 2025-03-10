@@ -1,3 +1,71 @@
+//! # dx-ext
+//!
+//! A CLI tool for building browser extension using Dioxus
+//! `dx-ext` simplifies the development workflow for creating browser extensions with Dioxus
+//!
+//! ## Commands
+//!
+//! ### Init
+//!
+//! Creates a bew configuration file (`dx-ext.toml`) with customizable options.
+//!
+//! ```bash
+//! dx-ext init [OPTIONS]
+//! ```
+//!
+//! Options:
+//! - `--extension-dir <DIR>`: Name of the extension directory (default: "extension")
+//! - `--popup name <NAME>`: Name of the popup crate (default: "popup")
+//! - `--background-script <FILE>`: Name of the background script entry point (default: "`background_index.js`")
+//! - `--content-script <FILE>`: Name of the content script entry point (default: "`content_index.js`")
+//! - `--assets-dir <DIR>`: Assets directory path relative to the extension's directory (default: "popup/assets")
+//! - `-f, --force`: Force overwrite of the existing config file
+//! - `-i, --interactive`: Interactive mode to collect confiuration information
+//!
+//! ### Build
+//!
+//! Builds all crates and copies all necessary files to the `dist` directory
+//!
+//! ```bash
+//! dx-ext build
+//! ```
+//!
+//! ### Watch
+//!
+//! Starts a file watcher and builds the extension automatically when files change.
+//!
+//! ```bash
+//! dx-ext watch
+//! ```
+//!
+//! ## Configuration:
+//!
+//! The tool uses a `dx-ext.toml` file in the project root with the following structure:
+//!
+//! ```toml
+//! [extension-config]
+//! assets-directory = "popup/assets"                   # your assets directory relative to the extension directory
+//! background-script-index-name = "background_index.js"       # name of your background script entry point
+//! content-script-index-name = "content_index.js"          # name of your content script entry point
+//! extension-directory-name = "extension"            # name of your extension directory
+//! popup-name = "popup"                          # name of your popup crate
+//! ```
+//!
+//! ## Internal Structure
+//!
+//! The tool organizes extension components into three main crates:
+//! - `Popup`: The UI component of the extension
+//! - `Background`: The background script that runs persistently
+//! - `Content`: The content script that runs in the context of web pages
+//!
+//! File operations are managed through the `EFile` enum which handles copying:
+//! - `Manifest`: The extension's manifest.json
+//! - `IndexHtml`: Main HTML file
+//! - `IndexJs`: Main JavaScript entry point
+//! - `BackgroundScript`: The background script entry point
+//! - `ContentScript`: The content script entry point
+//! - `Assets`: Additional assets required by the extension
+
 use {
 	anyhow::{Context, Result},
 	clap::{ArgAction, Args, Parser, Subcommand, ValueHint, command},
@@ -5,15 +73,14 @@ use {
 	futures::future::{join_all, try_join_all},
 	lowdash::find_uniques,
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
-	rayon::iter::{IntoParallelRefIterator, ParallelIterator},
-	serde::Deserialize,
+	serde::{Deserialize, Serialize},
 	std::{
-		collections::HashSet,
-		fs,
+		collections::{HashMap, HashSet},
+		fs, io,
 		path::{Path, PathBuf},
 		process::Stdio,
 		sync::LazyLock,
-		time::Duration,
+		time::{Duration, SystemTime},
 	},
 	strum::IntoEnumIterator,
 	tokio::{
@@ -21,7 +88,7 @@ use {
 		sync::{Mutex, mpsc},
 	},
 	tokio_util::sync::CancellationToken,
-	tracing::{Level, error, info, warn},
+	tracing::{Level, debug, error, info, warn},
 	tracing_subscriber::{
 		FmtSubscriber,
 		fmt::{format::Writer, time::FormatTime},
@@ -30,15 +97,44 @@ use {
 
 static PENDING_BUILDS: LazyLock<Mutex<HashSet<ExtensionCrate>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 static PENDING_COPIES: LazyLock<Mutex<HashSet<EFile>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+static FILE_HASHES: LazyLock<Mutex<HashMap<PathBuf, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static FILE_TIMESTAMPS: LazyLock<Mutex<HashMap<PathBuf, SystemTime>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+enum BuildMode {
+	Development,
+	Release,
+}
+
+impl std::fmt::Display for BuildMode {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			Self::Development => write!(f, "development"),
+			Self::Release => write!(f, "release"),
+		}
+	}
+}
+
+impl std::str::FromStr for BuildMode {
+	type Err = String;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s.to_lowercase().as_str() {
+			"development" | "dev" => Ok(Self::Development),
+			"release" | "prod" | "production" => Ok(Self::Release),
+			_ => Err(format!("Invalid build mode: {s}. Use 'development' or 'release'")),
+		}
+	}
+}
 
 // config struct that matches the TOML structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct TomlConfig {
 	#[serde(rename = "extension-config")]
 	extension_config: ExtConfigToml,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct ExtConfigToml {
 	#[serde(rename = "assets-directory")]
 	assets_directory: String,
@@ -63,6 +159,7 @@ struct ExtConfig {
 	extension_directory_name: String,
 	popup_name: String,
 	assets_dir: String,
+	build_mode: BuildMode,
 }
 
 fn read_config() -> Result<ExtConfig> {
@@ -77,6 +174,7 @@ fn read_config() -> Result<ExtConfig> {
 		extension_directory_name: parsed_toml.extension_config.extension_directory_name,
 		popup_name: parsed_toml.extension_config.popup_name,
 		assets_dir: parsed_toml.extension_config.assets_directory,
+		build_mode: BuildMode::Development,
 	})
 }
 
@@ -100,25 +198,30 @@ impl ExtensionCrate {
 
 	async fn build_crate(self, config: &ExtConfig) -> Result<()> {
 		let crate_name = self.get_crate_name(config);
-		info!("Building {}...", crate_name);
-		let status = Command::new("wasm-pack")
-			.args([
-				"build",
-				"--no-pack",
-				"--no-typescript",
-				"--target",
-				"web",
-				"--out-dir",
-				"../dist",
-				format!("{}/{}", config.extension_directory_name, crate_name).as_ref(),
-			])
-			.stdout(Stdio::null())
-			.stderr(Stdio::null())
-			.status()
-			.await
-			.context("Failed to execute wasm-pack")?;
+		info!("Building {} in {} mode...", crate_name, config.build_mode);
+
+		let mut args = vec![
+			"build".to_owned(),
+			"--no-pack".to_owned(),
+			"--no-typescript".to_owned(),
+			"--target".to_owned(),
+			"web".to_owned(),
+			"--out-dir".to_owned(),
+			"../dist".to_owned(),
+		];
+
+		// profile flag based on build mode
+		if matches!(config.build_mode, BuildMode::Release) {
+			args.push("--release".to_owned());
+		}
+
+		args.push(format!("{}/{}", config.extension_directory_name, crate_name));
+
+		let status = Command::new("wasm-pack").args(&args).stdout(Stdio::null()).stderr(Stdio::null()).status().await.context("Failed to execute wasm-pack")?;
+
 		if !status.success() {
 			warn!("[FAIL] wasm-pack build for {} failed with status: {}", crate_name, status);
+			return Err(anyhow::anyhow!("Build failed for {}", crate_name));
 		} else {
 			info!("[SUCCESS] wasm-pack build for {}", crate_name);
 		}
@@ -165,23 +268,153 @@ impl EFile {
 		}
 	}
 
-	fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
-		fs::create_dir_all(dst)?;
+	fn calculate_file_hash(path: &Path) -> Result<String> {
+		let mut file = fs::File::open(path).with_context(|| format!("Failed to open file for hashing: {path:?}"))?;
+		let mut hasher = blake3::Hasher::new();
 
-		let entries: Vec<_> = fs::read_dir(src)?.collect::<Result<Vec<_>, _>>()?;
-		entries.par_iter().try_for_each(|entry| {
-			let ty = entry.file_type()?;
+		let mut buffer = [0; 8192];
+		loop {
+			let bytes_read = io::Read::read(&mut file, &mut buffer).with_context(|| format!("Failed to read file for hashing: {path:?}"))?;
+
+			if bytes_read == 0 {
+				break;
+			}
+
+			hasher.update(&buffer[..bytes_read]);
+		}
+
+		Ok(hasher.finalize().to_hex().to_string())
+	}
+
+	// hash checking to avoid unnecessary copies
+	async fn copy_file(src: &Path, dest: &Path) -> Result<bool> {
+		if !src.exists() {
+			return Err(anyhow::anyhow!("Source file does not exist: {:?}", src));
+		}
+
+		let mut hashes = FILE_HASHES.lock().await;
+		let mut timestamps = FILE_TIMESTAMPS.lock().await;
+
+		// check if destination exists and get its metadata
+		let copy_needed = if dest.exists() {
+			let src_metadata = fs::metadata(src).with_context(|| format!("Failed to get metadata for source file: {src:?}"))?;
+			let dest_metadata = fs::metadata(dest).with_context(|| format!("Failed to get metadata for destination file: {dest:?}"))?;
+
+			// check if sizes differ - quick check before hashing
+			if src_metadata.len() != dest_metadata.len() {
+				true
+			} else if let Ok(src_time) = src_metadata.modified() {
+				// if we have a stored timestamp for the source file
+				if let Some(stored_time) = timestamps.get(src) {
+					if *stored_time == src_time {
+						// file hasn't changed since last check
+						false
+					} else {
+						// file changed, check content hash
+						let src_hash = Self::calculate_file_hash(src)?;
+						let dest_hash = Self::calculate_file_hash(dest)?;
+
+						if src_hash != dest_hash {
+							// update the hash
+							hashes.insert(src.to_path_buf(), src_hash);
+							timestamps.insert(src.to_path_buf(), src_time);
+							true
+						} else {
+							// update timestamp even though content hasn't changed
+							timestamps.insert(src.to_path_buf(), src_time);
+							false
+						}
+					}
+				} else {
+					// no stored timestamp, compare hashes
+					let src_hash = Self::calculate_file_hash(src)?;
+					let dest_hash = Self::calculate_file_hash(dest)?;
+
+					if src_hash != dest_hash {
+						hashes.insert(src.to_path_buf(), src_hash);
+						timestamps.insert(src.to_path_buf(), src_time);
+						true
+					} else {
+						timestamps.insert(src.to_path_buf(), src_time);
+						false
+					}
+				}
+			} else {
+				// if we can't get modification time, fall back to hash comparison
+				let src_hash = Self::calculate_file_hash(src)?;
+				let dest_hash = Self::calculate_file_hash(dest)?;
+
+				hashes.insert(src.to_path_buf(), src_hash.clone());
+				src_hash != dest_hash
+			}
+		} else {
+			// destination doesn't exist, copy is needed
+			// also store the hash for future comparisons
+			if let Ok(src_metadata) = fs::metadata(src) {
+				if let Ok(modified) = src_metadata.modified() {
+					timestamps.insert(src.to_path_buf(), modified);
+				}
+			}
+
+			if let Ok(hash) = Self::calculate_file_hash(src) {
+				hashes.insert(src.to_path_buf(), hash);
+			}
+
+			true
+		};
+
+		if copy_needed {
+			// create parent directories if they don't exist
+			if let Some(parent) = dest.parent() {
+				fs::create_dir_all(parent).with_context(|| format!("Failed to create parent directory: {parent:?}"))?;
+			}
+
+			// the actual copy
+			fs::copy(src, dest).with_context(|| format!("Failed to copy file from {src:?} to {dest:?}"))?;
+
+			debug!("Copied file: {:?} -> {:?}", src, dest);
+			Ok(true)
+		} else {
+			debug!("Skipped copying unchanged file: {:?}", src);
+			Ok(false)
+		}
+	}
+
+	// directory copy with parallel processing and hash checking
+	async fn copy_dir_all(src: &Path, dst: &Path) -> Result<bool> {
+		if !src.exists() {
+			return Err(anyhow::anyhow!("Source directory does not exist: {:?}", src));
+		}
+
+		// create destination directory if it doesn't exist
+		fs::create_dir_all(dst).with_context(|| format!("Failed to create destination directory: {dst:?}"))?;
+
+		// directory entries read
+		let entries = fs::read_dir(src).with_context(|| format!("Failed to read source directory: {src:?}"))?.collect::<Result<Vec<_>, _>>()?;
+
+		let copy_futures = entries.into_iter().map(|entry| {
 			let src_path = entry.path();
 			let dst_path = dst.join(entry.file_name());
 
-			if ty.is_dir() {
-				Self::copy_dir_all(&src_path, &dst_path)
-			} else {
-				fs::copy(&src_path, &dst_path).map(|_| ()).context(format!("Failed to copy file from {src_path:?} to {dst_path:?}"))
-			}
-		})?;
+			async move {
+				let ty = entry.file_type().with_context(|| format!("Failed to get file type for: {src_path:?}"))?;
 
-		Ok(())
+				if ty.is_dir() {
+					Self::copy_dir_all(&src_path, &dst_path).await
+				} else if ty.is_file() {
+					Self::copy_file(&src_path, &dst_path).await
+				} else {
+					// skip symlinks and other special files
+					debug!("Skipping non-regular file: {:?}", src_path);
+					Ok(false)
+				}
+			}
+		});
+
+		let results = try_join_all(copy_futures).await?;
+
+		// true if any files were copied
+		Ok(results.into_iter().any(|copied| copied))
 	}
 
 	async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
@@ -189,28 +422,19 @@ impl EFile {
 		let src = self.get_copy_src(config);
 		let dest = self.get_copy_dest(config);
 
-		if let Some(parent) = dest.parent() {
-			fs::create_dir_all(parent).with_context(|| format!("Failed to create directory: {parent:?}"))?;
-		}
-
-		let result = if src.is_dir() {
-			Self::copy_dir_all(&src, &dest).with_context(|| format!("Failed to copy directory from {src:?} to {dest:?}"))
-		} else {
-			let src_clone = src.clone();
-			let dest_clone = dest.clone();
-			tokio::task::spawn_blocking(move || {
-				fs::copy(&src_clone, &dest_clone).map(|_| ()).with_context(|| format!("Failed to copy file from {src_clone:?} to {dest_clone:?}"))
-			})
-			.await?
-		};
+		let result = if src.is_dir() { Self::copy_dir_all(&src, &dest).await } else { Self::copy_file(&src, &dest).await };
 
 		match result {
-			Ok(_) => {
-				info!("[SUCCESS] copy for {:?}", self);
+			Ok(copied) => {
+				if copied {
+					info!("[SUCCESS] Copied {:?}", self);
+				} else {
+					info!("[SKIPPED] No changes for {:?}", self);
+				}
 				Ok(())
 			},
 			Err(e) => {
-				warn!("copy for {:?} failed: {}", self, e);
+				warn!("Copy for {:?} failed: {}", self, e);
 				Err(e)
 			},
 		}
@@ -259,14 +483,22 @@ async fn hot_reload(config: ExtConfig) -> Result<()> {
 	let ext_dir_binding = format!("./{}", config.extension_directory_name);
 	let ext_dir = Path::new(&ext_dir_binding);
 	for e_file in EFile::iter() {
-		watcher.watch(&ext_dir.join(e_file.get_watch_path(&config)), RecursiveMode::NonRecursive).with_context(|| format!("Failed to watch file: {e_file:?}"))?;
+		let watch_path = ext_dir.join(e_file.get_watch_path(&config));
+		if watch_path.exists() {
+			watcher.watch(&watch_path, RecursiveMode::NonRecursive).with_context(|| format!("Failed to watch file: {e_file:?} at path {watch_path:?}"))?;
+		} else {
+			warn!("Watch path does not exist: {:?}", watch_path);
+		}
 	}
 	for e_crate in ExtensionCrate::iter() {
-		watcher
-			.watch(&ext_dir.join(e_crate.get_crate_name(&config)).join("src"), RecursiveMode::Recursive)
-			.with_context(|| format!("Failed to watch directory: {e_crate:?}"))?;
+		let crate_src_path = ext_dir.join(e_crate.get_crate_name(&config)).join("src");
+		if crate_src_path.exists() {
+			watcher.watch(&crate_src_path, RecursiveMode::Recursive).with_context(|| format!("Failed to watch directory: {e_crate:?} at path {crate_src_path:?}"))?;
+		} else {
+			warn!("Crate source path does not exist: {:?}", crate_src_path);
+		}
 	}
-	info!("File watcher started. Press Ctrl+C to stop.");
+	info!("File watcher started in {} mode. Press Ctrl+C to stop.", config.build_mode);
 	let watch_task = tokio::spawn(watch_loop(rx, cancel_token.clone(), config));
 	tokio::select! {
 		_ = tokio::signal::ctrl_c() => {
@@ -312,6 +544,18 @@ struct InitOptions {
 	interactive: bool,
 }
 
+// Build options shared by Build and Watch commands
+#[derive(Args, Debug, Clone)]
+struct BuildOptions {
+	/// Build mode (development or release)
+	#[arg(short, long, help = "Build mode: development or release", default_value = "development")]
+	mode: BuildMode,
+
+	/// Clean build (remove dist directory before building)
+	#[arg(short, long, help = "Clean build (remove dist directory first)", action = ArgAction::SetTrue)]
+	clean: bool,
+}
+
 #[derive(Parser)]
 #[command(name = "dx-ext", author = "Summit Sailors", version, about = "CLI tool for building browser extensions using dioxus", long_about = None)]
 struct Cli {
@@ -322,9 +566,9 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
 	/// Start the file watcher and build system
-	Watch,
+	Watch(BuildOptions),
 	/// Build all crates and copy files without watching
-	Build,
+	Build(BuildOptions),
 	/// Create a configuration file with customizable options
 	Init(InitOptions),
 }
@@ -336,25 +580,39 @@ async fn main() -> Result<()> {
 	FmtSubscriber::builder().with_max_level(Level::INFO).with_timer(CustomTime).init();
 
 	match cli.command {
-		Commands::Watch => {
-			// configuration from TOML file
-			let config = read_config().context("Failed to read configuration")?;
+		Commands::Watch(options) => {
+			// configuration from TOML file with build mode override
+			let mut config = read_config().context("Failed to read configuration")?;
+			config.build_mode = options.mode;
+
 			info!("Using extension directory: {}", config.extension_directory_name);
 			info!("Popup crate: {}", config.popup_name);
 			info!("Background script: {}", config.background_script_index_name);
 			info!("Content script: {}", config.content_script_index_name);
 			info!("Assets directory: {}", config.assets_dir);
+			info!("Build mode: {}", config.build_mode);
+
+			if options.clean {
+				clean_dist_directory(&config).await?;
+			}
 
 			hot_reload(config).await?;
 		},
-		Commands::Build => {
-			// configuration from TOML file
-			let config = read_config().context("Failed to read configuration")?;
+		Commands::Build(options) => {
+			// configuration from TOML file with build mode override
+			let mut config = read_config().context("Failed to read configuration")?;
+			config.build_mode = options.mode;
+
 			info!("Using extension directory: {}", config.extension_directory_name);
 			info!("Popup crate: {}", config.popup_name);
 			info!("Background script: {}", config.background_script_index_name);
 			info!("Content script: {}", config.content_script_index_name);
 			info!("Assets directory: {}", config.assets_dir);
+			info!("Build mode: {}", config.build_mode);
+
+			if options.clean {
+				clean_dist_directory(&config).await?;
+			}
 
 			let build_futures = ExtensionCrate::iter().map(|crate_type| crate_type.build_crate(&config));
 			let copy_futures = EFile::iter().map(|e_file| e_file.copy_file_to_dist(&config));
@@ -376,14 +634,29 @@ async fn main() -> Result<()> {
 	Ok(())
 }
 
+// Clean the distribution directory
+async fn clean_dist_directory(config: &ExtConfig) -> Result<()> {
+	let dist_path = format!("./{}/dist", config.extension_directory_name);
+	let dist_path = Path::new(&dist_path);
+
+	if dist_path.exists() {
+		info!("Cleaning dist directory: {:?}", dist_path);
+		fs::remove_dir_all(dist_path).with_context(|| format!("Failed to remove dist directory: {dist_path:?}"))?;
+	}
+
+	fs::create_dir_all(dist_path).with_context(|| format!("Failed to create dist directory: {dist_path:?}"))?;
+
+	Ok(())
+}
+
 async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationToken, config: ExtConfig) {
 	let mut pending_events = tokio::time::interval(Duration::from_secs(1));
 	loop {
 		tokio::select! {
 			_ = cancel_token.cancelled() => break,
 			Some(event) = rx.recv() => {
-								handle_event(&event, &config).await;
-								pending_events.reset();
+				handle_event(&event, &config).await;
+				pending_events.reset();
 			}
 			_ = pending_events.tick() => {
 				process_pending_events(&config).await;
@@ -393,7 +666,14 @@ async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationTok
 }
 
 async fn handle_event(event: &Event, config: &ExtConfig) {
-	let _ext_dir = config.extension_directory_name.clone();
+	// optimization: Skip processing for temporary files and other non-relevant files
+	if event.paths.iter().any(|path| {
+		let path_str = path.to_string_lossy();
+		path_str.contains(".tmp") || path_str.contains(".swp") || path_str.contains("~") || path_str.ends_with(".git")
+	}) {
+		info!("Skipping temporary or non-relevant file: {:?}", event.paths);
+		return;
+	}
 
 	let copy_futures = find_uniques(
 		&event
@@ -408,9 +688,11 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 	.into_iter()
 	.map(|e_file| async move { PENDING_COPIES.lock().await.insert(e_file) });
 
+	// shared API changes
 	if event.paths.iter().any(|path| path.to_str().unwrap_or_default().contains("api")) {
 		tokio::join!(join_all(ExtensionCrate::iter().map(|crate_type| async move { PENDING_BUILDS.lock().await.insert(crate_type) })), join_all(copy_futures));
 	} else {
+		// crate-specific changes
 		tokio::join!(
 			join_all(
 				find_uniques(
@@ -435,13 +717,43 @@ async fn process_pending_events(config: &ExtConfig) {
 	let builds = PENDING_BUILDS.lock().await.drain().collect::<Vec<_>>();
 	let copies = PENDING_COPIES.lock().await.drain().collect::<Vec<_>>();
 
+	if builds.is_empty() && copies.is_empty() {
+		return;
+	}
+
+	let build_label = if builds.len() == 1 {
+		format!("{}", builds[0])
+	} else if builds.len() <= 3 {
+		builds.iter().map(|b| format!("{b}")).collect::<Vec<_>>().join(", ")
+	} else {
+		format!("{} crates", builds.len())
+	};
+
+	let copy_label = if copies.len() == 1 {
+		format!("{}", copies[0])
+	} else if copies.len() <= 3 {
+		copies.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ")
+	} else {
+		format!("{} files", copies.len())
+	};
+
+	if !builds.is_empty() {
+		info!("Processing {} build(s): {}", builds.len(), build_label);
+	}
+
+	if !copies.is_empty() {
+		info!("Processing {} copy operation(s): {}", copies.len(), copy_label);
+	}
+
 	let (build_result, copy_result) = tokio::join!(
 		try_join_all(builds.into_iter().map(|crate_type| crate_type.build_crate(config))),
 		try_join_all(copies.into_iter().map(|e_file| e_file.copy_file_to_dist(config)))
 	);
+
 	if let Err(e) = build_result {
 		error!("Error during builds: {}", e);
 	}
+
 	if let Err(e) = copy_result {
 		error!("Error during copy: {}", e);
 	}

@@ -27,5 +27,7 @@ dialoguer = "0.11.0"
 
 rayon = "1.10.0"
 
+blake3 = "1.6.1"
+
 [lints]
 workspace = true
