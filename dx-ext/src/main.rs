@@ -21,6 +21,8 @@
 //! - `--assets-dir <DIR>`: Assets directory path relative to the extension's directory (default: "popup/assets")
 //! - `-f, --force`: Force overwrite of the existing config file
 //! - `-i, --interactive`: Interactive mode to collect confiuration information
+//! - `--mode, -m`: Build mode: development or release (default: "development")
+//! - `--clean, -c`: Clean build (remove dist directory first)
 //!
 //! ### Build
 //!
@@ -28,6 +30,10 @@
 //!
 //! ```bash
 //! dx-ext build
+//!
+//! dx-ext build -m release # Release mode builds
+//!
+//! dx-ext build --clean # clean builds
 //! ```
 //!
 //! ### Watch
