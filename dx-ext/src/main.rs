@@ -90,6 +90,7 @@ use {
 	},
 	strum::IntoEnumIterator,
 	tokio::{
+		io::AsyncBufReadExt,
 		process::Command,
 		sync::{Mutex, mpsc},
 	},
@@ -504,7 +505,10 @@ async fn hot_reload(config: ExtConfig) -> Result<()> {
 			warn!("Crate source path does not exist: {:?}", crate_src_path);
 		}
 	}
-	info!("File watcher started in {} mode. Press Ctrl+C to stop.", config.build_mode);
+
+	info!("File watcher started in {} mode.", config.build_mode);
+	info!("Press 'r' to force rebuild, 'q' or Ctrl+C to quit");
+
 	let watch_task = tokio::spawn(watch_loop(rx, cancel_token.clone(), config));
 	tokio::select! {
 		_ = tokio::signal::ctrl_c() => {
@@ -572,10 +576,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
 	/// Start the file watcher and build system
+	#[clap(name = "watch")]
 	Watch(BuildOptions),
 	/// Build all crates and copy files without watching
+	#[clap(name = "build")]
 	Build(BuildOptions),
 	/// Create a configuration file with customizable options
+	#[clap(name = "init")]
 	Init(InitOptions),
 }
 
@@ -657,6 +664,7 @@ async fn clean_dist_directory(config: &ExtConfig) -> Result<()> {
 
 async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationToken, config: ExtConfig) {
 	let mut pending_events = tokio::time::interval(Duration::from_secs(1));
+
 	loop {
 		tokio::select! {
 			_ = cancel_token.cancelled() => break,
@@ -672,7 +680,6 @@ async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationTok
 }
 
 async fn handle_event(event: &Event, config: &ExtConfig) {
-	// optimization: Skip processing for temporary files and other non-relevant files
 	if event.paths.iter().any(|path| {
 		let path_str = path.to_string_lossy();
 		path_str.contains(".tmp") || path_str.contains(".swp") || path_str.contains("~") || path_str.ends_with(".git")
