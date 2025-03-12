@@ -6,16 +6,112 @@ use {
 	std::{
 		collections::{HashMap, HashSet},
 		path::PathBuf,
-		sync::LazyLock,
+		sync::{Arc, LazyLock},
 		time::{Duration, Instant, SystemTime},
 	},
 	tokio::sync::Mutex,
+	tracing::{Event, Subscriber, field::Visit},
+	tracing_subscriber::{Layer, registry::LookupSpan},
 };
 
 pub(crate) static PENDING_BUILDS: LazyLock<Mutex<HashSet<ExtensionCrate>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 pub(crate) static PENDING_COPIES: LazyLock<Mutex<HashSet<EFile>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 pub(crate) static FILE_HASHES: LazyLock<Mutex<HashMap<PathBuf, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 pub(crate) static FILE_TIMESTAMPS: LazyLock<Mutex<HashMap<PathBuf, SystemTime>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+// type alias for a logging callback function
+pub(crate) type LogCallback = Arc<Mutex<dyn Fn(LogLevel, &str) + Send + Sync>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LogLevel {
+	Debug,
+	Info,
+	Warn,
+	Error,
+}
+
+// custom layer for tracing (that will forward logs to TUI)
+pub(crate) struct TUILogLayer {
+	callback: LogCallback,
+}
+
+impl TUILogLayer {
+	pub(crate) fn new(callback: LogCallback) -> Self {
+		Self { callback }
+	}
+}
+
+impl<S> Layer<S> for TUILogLayer
+where
+	S: Subscriber + for<'a> LookupSpan<'a>,
+{
+	fn on_event(&self, event: &Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
+		// log message extraction
+		let mut message = String::new();
+		struct MessageVisitor<'a>(&'a mut String);
+
+		impl<'a> Visit for MessageVisitor<'a> {
+			fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+				if field.name() == "message" {
+					self.0.push_str(&format!("{:?}", value));
+				}
+			}
+
+			fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+				if field.name() == "message" {
+					self.0.push_str(value);
+				}
+			}
+		}
+
+		event.record(&mut MessageVisitor(&mut message));
+
+		let level = match *event.metadata().level() {
+			tracing::Level::DEBUG => LogLevel::Debug,
+			tracing::Level::INFO => LogLevel::Info,
+			tracing::Level::WARN => LogLevel::Warn,
+			tracing::Level::ERROR => LogLevel::Error,
+			_ => LogLevel::Error,
+		};
+
+		// Send the log to the TUI via callback
+		let callback = self.callback.clone();
+		tokio::spawn(async move {
+			let callback_guard = callback.lock().await;
+			(callback_guard)(level, &message);
+		});
+	}
+}
+
+// task progress tracking
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TaskProgress {
+	NotStarted,
+	Running(f64),
+	Completed(Duration),
+	Failed(Duration),
+}
+
+impl Default for TaskProgress {
+	fn default() -> Self {
+		Self::NotStarted
+	}
+}
+
+// history tracking
+#[derive(Debug, Clone)]
+pub struct TaskState {
+	pub status: BuildStatus,
+	pub start_time: Option<Instant>,
+	pub end_time: Option<Instant>,
+	pub progress: Option<f64>,
+}
+
+impl Default for TaskState {
+	fn default() -> Self {
+		Self { status: BuildStatus::Pending, start_time: None, end_time: None, progress: None }
+	}
+}
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum BuildStatus {
@@ -30,18 +126,19 @@ pub enum BuilState {
 	Idle,
 	Running { progress: f64, start_time: Instant },
 	Complete { duration: Duration },
-	Failed,
+	Failed { duration: Duration },
 }
 
-#[derive(Debug, Clone)]
-pub enum EXMessage {
-	Tick,
+pub(crate) enum EXMessage {
 	Keypress(KeyCode),
+	Tick,
 	BuildProgress(f64),
 	BuildComplete,
 	BuildFailed,
 	Exit,
 	UpdateTask(String, BuildStatus),
+	LogMessage(LogLevel, String),
+	TaskProgress(String, f64),
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

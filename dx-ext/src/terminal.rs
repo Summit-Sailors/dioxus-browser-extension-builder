@@ -1,5 +1,8 @@
 use {
-	crate::{app::App, common::BuilState},
+	crate::{
+		app::App,
+		common::{BuilState, BuildStatus},
+	},
 	crossterm::{
 		ExecutableCommand,
 		cursor::{Hide, Show},
@@ -10,12 +13,10 @@ use {
 		layout::{Constraint, Direction, Layout, Rect},
 		style::{Color, Modifier, Style},
 		symbols,
+		text::{Line, Span},
 		widgets::{Block, BorderType, Borders, LineGauge, Paragraph},
 	},
-	std::{
-		io::{self, stdout},
-		rc::Rc,
-	},
+	std::io::{self, stdout},
 };
 
 pub(crate) struct Terminal {
@@ -40,7 +41,7 @@ impl Terminal {
 
 			// layout with a border
 			let main_block = Block::default()
-				.title("Dioxus Browser Extension Builder")
+				.title(Line::from(Span::styled("Dioxus Browser Extension Builder", Style::default().fg(Color::White))).centered())
 				.borders(Borders::ALL)
 				.border_type(BorderType::Rounded)
 				.border_style(Style::default().fg(ratatui::style::Color::DarkGray));
@@ -54,10 +55,10 @@ impl Terminal {
 				.direction(ratatui::layout::Direction::Vertical)
 				.margin(1)
 				.constraints([
+					Constraint::Length(3), // task status area
 					Constraint::Length(1), // progress bar
 					Constraint::Length(1), // status line
-					Constraint::Length(3), // task list
-					Constraint::Length(1), // empty space
+					Constraint::Length(5), // logs area (fills remaining space)
 					Constraint::Length(1), // instructions
 				])
 				.split(inner_area);
@@ -66,41 +67,125 @@ impl Terminal {
 			Self::render_task_list(frame, chunks[0], app);
 
 			// render status line
-			Self::render_status(frame, chunks[1], app);
+			Self::render_status(frame, chunks[2], app);
 
 			// render the progress bar
-			Self::render_progress_bar(frame, chunks[2], app);
+			Self::render_progress_bar(frame, chunks[1], app);
+
+			// render logs
+			Self::render_logs(frame, chunks[3], app);
 
 			// render instructions
-			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").style(Style::default().fg(Color::Gray)), chunks[3]);
+			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").style(Style::default().fg(Color::Gray)), chunks[4]);
 		})?;
 
 		Ok(())
 	}
 
+	fn render_logs(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
+		let logs_block = Block::default()
+			.title(Line::from(Span::styled("Logs ", Style::default().fg(Color::Cyan))).centered())
+			.borders(Borders::ALL)
+			.border_type(BorderType::Rounded)
+			.border_style(Style::default().fg(Color::DarkGray));
+
+		let inner_area = logs_block.inner(area);
+		frame.render_widget(logs_block, area);
+
+		// each line of log text into a Line object
+		let log_lines: Vec<Line<'_>> = app.log_buffer.iter().map(|log_line| Line::from(log_line.clone())).collect();
+
+		// a paragraph with the explicit Line objects
+		let log_text = Paragraph::new(log_lines).centered().wrap(ratatui::widgets::Wrap { trim: true });
+
+		frame.render_widget(log_text, inner_area);
+	}
+
 	fn render_task_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-		let task_list = app.get_task_status();
-		frame.render_widget(Paragraph::new(task_list).style(Style::default().fg(Color::White)), area);
+		let tasks_block = Block::default()
+			.title(Line::from(Span::styled("Tasks", Style::default().fg(Color::Cyan))).centered())
+			.borders(Borders::ALL)
+			.border_type(BorderType::Rounded)
+			.border_style(Style::default().fg(Color::DarkGray));
+
+		let inner_area = tasks_block.inner(area);
+		frame.render_widget(tasks_block, area);
+
+		let tasks_text = app.get_task_status();
+
+		let tasks_paragraph = Paragraph::new(tasks_text).centered().style(Style::default().fg(Color::White));
+
+		frame.render_widget(tasks_paragraph, inner_area);
 	}
 
 	fn render_progress_bar(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-		let (progress, style, is_running) = match &app.task_state {
-			BuilState::Idle => (0.0, Style::default().fg(Color::DarkGray), false),
-			BuilState::Running { progress, .. } => (*progress, Style::default().fg(Color::Yellow), true),
-			BuilState::Complete { .. } => (1.0, Style::default().fg(Color::Green), false),
-			BuilState::Failed => (1.0, Style::default().fg(Color::Red), false),
+		let (progress, style, label, is_running) = if !app.has_active_tasks() {
+			(0.0, Style::default().fg(Color::DarkGray), " No active tasks ".to_string(), false)
+		} else {
+			let (total, _pending, in_progress, _completed) = app.get_task_stats();
+			let failed = app.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
+			let success = app.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
+
+			match &app.task_state {
+				BuilState::Idle => {
+					(0.0, Style::default().fg(Color::DarkGray), format!(" Waiting to start {} task{} ", total, if total != 1 { "s" } else { "" }), false)
+				},
+
+				BuilState::Running { progress, .. } => {
+					let style = if *progress < 0.33 {
+						Style::default().fg(Color::Yellow)
+					} else if *progress < 0.66 {
+						Style::default().fg(Color::Yellow)
+					} else {
+						Style::default().fg(Color::Green)
+					};
+
+					let percent = (progress * 100.0).round();
+
+					let label = format!(" {:.0}% | {}/{} completed, {}/{} in progress, {} failed ", percent, success, total, in_progress, total, failed);
+
+					(*progress, style, label, true)
+				},
+
+				BuilState::Complete { duration } => {
+					let time_str = if duration.as_secs() >= 60 {
+						format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
+					} else {
+						format!("{:.1}s", duration.as_secs_f32())
+					};
+
+					(1.0, Style::default().fg(Color::Green), format!(" Complete ({}/{} tasks) in {} ", success, total, time_str), false)
+				},
+
+				BuilState::Failed { duration } => {
+					let time_str = if duration.as_secs() >= 60 {
+						format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
+					} else {
+						format!("{:.1}s", duration.as_secs_f32())
+					};
+
+					(1.0, Style::default().fg(Color::Red), format!(" Failed ({}/{} tasks failed) in {} ", failed, total, time_str), false)
+				},
+			}
 		};
 
-		let split_areas: Rc<[Rect]> = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Fill(1), Constraint::Length(12)]).split(area);
+		// A centered progress bar for status indicators
+		let split_areas = Layout::default()
+			.direction(Direction::Horizontal)
+			.constraints([
+				Constraint::Percentage(10), // left margin
+				Constraint::Percentage(80), // progress bar
+				Constraint::Percentage(10), // status indicators
+			])
+			.split(area);
 
-		let gauge_area = split_areas[0];
-		let icon_area = split_areas[1];
+		let gauge_area = split_areas[1];
+		let icon_area = split_areas[2];
 
-		// render the progress gauge
-		frame.render_widget(LineGauge::default().filled_style(style).line_set(symbols::line::THICK).ratio(progress).label("Progress: "), gauge_area);
+		// the progress gauge with label
+		frame.render_widget(LineGauge::default().filled_style(style).line_set(symbols::line::THICK).ratio(progress).label(label), gauge_area);
 
-		let split_icon_areas: Rc<[Rect]> =
-			Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(3), Constraint::Fill(1)]).split(icon_area);
+		let split_icon_areas = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(3), Constraint::Fill(1)]).split(icon_area);
 
 		let throbber_area = split_icon_areas[0];
 		let time_area = split_icon_areas[1];
@@ -113,28 +198,40 @@ impl Terminal {
 				.use_type(throbber_widgets_tui::WhichUse::Spin);
 
 			frame.render_stateful_widget(throb, throbber_area, &mut app.throbber_state);
+
+			// elapsed time for running tasks
+			if let Some(start_time) = app.overall_start_time {
+				let elapsed = start_time.elapsed();
+				let time_text =
+					if elapsed.as_secs() >= 60 { format!("{}m {}s", elapsed.as_secs() / 60, elapsed.as_secs() % 60) } else { format!("{:.1}s", elapsed.as_secs_f32()) };
+
+				frame.render_widget(Paragraph::new(time_text).style(Style::default().fg(Color::DarkGray)), time_area);
+			}
 		} else {
 			let status_icon = match app.task_state {
 				BuilState::Complete { .. } => "✓ ",
-				BuilState::Failed => "✗ ",
-				_ => "  ",
+				BuilState::Failed { .. } => "✗ ",
+				_ => " ",
 			};
 
-			frame.render_widget(
-				Paragraph::new(status_icon).style(match app.task_state {
-					BuilState::Complete { .. } => Style::default().fg(Color::Green),
-					BuilState::Failed => Style::default().fg(Color::Red),
-					_ => Style::default(),
-				}),
-				throbber_area,
-			);
-		}
+			let icon_style = match app.task_state {
+				BuilState::Complete { .. } => Style::default().fg(Color::Green),
+				BuilState::Failed { .. } => Style::default().fg(Color::Red),
+				_ => Style::default(),
+			};
 
-		if let BuilState::Running { start_time, .. } = app.task_state {
-			let elapsed = start_time.elapsed();
-			frame.render_widget(Paragraph::new(format!("{:.1}s", elapsed.as_secs_f32())).style(Style::default().fg(Color::DarkGray)), time_area);
-		} else if let BuilState::Complete { duration } = app.task_state {
-			frame.render_widget(Paragraph::new(format!("{:.1}s", duration.as_secs_f32())).style(Style::default().fg(Color::DarkGray)), time_area);
+			frame.render_widget(Paragraph::new(status_icon).style(icon_style), throbber_area);
+
+			// completion time for finished tasks
+			if let BuilState::Complete { duration } = app.task_state {
+				let time_text = if duration.as_secs() >= 60 {
+					format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
+				} else {
+					format!("{:.1}s", duration.as_secs_f32())
+				};
+
+				frame.render_widget(Paragraph::new(time_text).style(Style::default().fg(Color::DarkGray)), time_area);
+			}
 		}
 	}
 
@@ -151,17 +248,17 @@ impl Terminal {
 				}
 			},
 			BuilState::Complete { .. } => "Task completed successfully",
-			BuilState::Failed => "Task failed",
+			BuilState::Failed { .. } => "Task failed",
 		};
 
 		let status_style = match &app.task_state {
 			BuilState::Idle => Style::default().fg(Color::Gray),
 			BuilState::Running { .. } => Style::default().fg(Color::Yellow),
 			BuilState::Complete { .. } => Style::default().fg(Color::Green),
-			BuilState::Failed => Style::default().fg(Color::Red),
+			BuilState::Failed { .. } => Style::default().fg(Color::Red),
 		};
 
-		frame.render_widget(Paragraph::new(status_text).style(status_style), area);
+		frame.render_widget(Paragraph::new(status_text).alignment(ratatui::layout::Alignment::Center).style(status_style), area);
 	}
 }
 
