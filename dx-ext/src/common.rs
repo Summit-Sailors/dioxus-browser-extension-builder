@@ -1,17 +1,16 @@
+#[allow(dead_code)]
 use {
-	crate::{efile::EFile, extcrate::ExtensionCrate},
+	crate::{LogLevel, efile::EFile, extcrate::ExtensionCrate},
 	clap::{ArgAction, Args, ValueHint},
 	crossterm::event::KeyCode,
 	serde::{Deserialize, Serialize},
 	std::{
 		collections::{HashMap, HashSet},
 		path::PathBuf,
-		sync::{Arc, LazyLock},
+		sync::LazyLock,
 		time::{Duration, Instant, SystemTime},
 	},
 	tokio::sync::Mutex,
-	tracing::{Event, Subscriber, field::Visit},
-	tracing_subscriber::{Layer, registry::LookupSpan},
 };
 
 pub(crate) static PENDING_BUILDS: LazyLock<Mutex<HashSet<ExtensionCrate>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
@@ -19,77 +18,13 @@ pub(crate) static PENDING_COPIES: LazyLock<Mutex<HashSet<EFile>>> = LazyLock::ne
 pub(crate) static FILE_HASHES: LazyLock<Mutex<HashMap<PathBuf, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 pub(crate) static FILE_TIMESTAMPS: LazyLock<Mutex<HashMap<PathBuf, SystemTime>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-// type alias for a logging callback function
-pub(crate) type LogCallback = Arc<Mutex<dyn Fn(LogLevel, &str) + Send + Sync>>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LogLevel {
-	Debug,
-	Info,
-	Warn,
-	Error,
-}
-
-// custom layer for tracing (that will forward logs to TUI)
-pub(crate) struct TUILogLayer {
-	callback: LogCallback,
-}
-
-impl TUILogLayer {
-	pub(crate) fn new(callback: LogCallback) -> Self {
-		Self { callback }
-	}
-}
-
-impl<S> Layer<S> for TUILogLayer
-where
-	S: Subscriber + for<'a> LookupSpan<'a>,
-{
-	fn on_event(&self, event: &Event<'_>, _ctx: tracing_subscriber::layer::Context<'_, S>) {
-		// log message extraction
-		let mut message = String::new();
-		struct MessageVisitor<'a>(&'a mut String);
-
-		impl<'a> Visit for MessageVisitor<'a> {
-			fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-				if field.name() == "message" {
-					self.0.push_str(&format!("{:?}", value));
-				}
-			}
-
-			fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-				if field.name() == "message" {
-					self.0.push_str(value);
-				}
-			}
-		}
-
-		event.record(&mut MessageVisitor(&mut message));
-
-		let level = match *event.metadata().level() {
-			tracing::Level::DEBUG => LogLevel::Debug,
-			tracing::Level::INFO => LogLevel::Info,
-			tracing::Level::WARN => LogLevel::Warn,
-			tracing::Level::ERROR => LogLevel::Error,
-			_ => LogLevel::Error,
-		};
-
-		// Send the log to the TUI via callback
-		let callback = self.callback.clone();
-		tokio::spawn(async move {
-			let callback_guard = callback.lock().await;
-			(callback_guard)(level, &message);
-		});
-	}
-}
-
 // task progress tracking
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(PartialEq)]
 pub enum TaskProgress {
 	NotStarted,
-	Running(f64),
-	Completed(Duration),
-	Failed(Duration),
+	InProgress(f64),
+	Completed,
+	Failed,
 }
 
 impl Default for TaskProgress {
@@ -176,6 +111,7 @@ pub(crate) struct ExtConfig {
 	pub(crate) popup_name: String,
 	pub(crate) assets_dir: String,
 	pub(crate) build_mode: BuildMode,
+	pub(crate) enable_incremental_builds: bool,
 }
 
 // config struct that matches the TOML structure
@@ -201,6 +137,9 @@ pub(crate) struct ExtConfigToml {
 
 	#[serde(rename = "popup-name")]
 	pub(crate) popup_name: String,
+
+	#[serde(rename = "enable-incremental-builds")]
+	pub(crate) enable_incremental_builds: bool,
 }
 
 // Configuration options for the Init command
@@ -233,4 +172,8 @@ pub(crate) struct InitOptions {
 	/// Interactive mode to collect configuration
 	#[arg(short, long, help = "Interactive mode to collect configuration", action = ArgAction::SetTrue)]
 	pub(crate) interactive: bool,
+
+	/// Enable incremental build
+	#[arg(short, long, help = "Enable incremental builds for watch command", action = ArgAction::SetTrue)]
+	pub(crate) enable_incremental_builds: bool,
 }

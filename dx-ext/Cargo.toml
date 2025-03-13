@@ -17,7 +17,7 @@ notify = { version = "8.0.0" }
 serde = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
-tokio = { version = "1.44.0", features = ["full"] }
+tokio = { version = "1.44.1", features = ["full"] }
 tokio-util = { version = "0.7.13" }
 toml = "0.8.20"
 tracing = { version = "0.1.41" }
@@ -28,6 +28,9 @@ dialoguer = "0.11.0"
 rayon = "1.10.0"
 
 blake3 = "1.6.1"
+regex = "1.11.1"
+
+walkdir = "2.5.0"
 
 # TUI
 crossterm = { version = "0.28.1", features = ["event-stream"] }

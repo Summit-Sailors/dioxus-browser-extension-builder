@@ -6,7 +6,7 @@ use {
 	crossterm::{
 		ExecutableCommand,
 		cursor::{Hide, Show},
-		terminal::{disable_raw_mode, enable_raw_mode},
+		terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 	},
 	ratatui::{
 		Frame,
@@ -14,7 +14,7 @@ use {
 		style::{Color, Modifier, Style},
 		symbols,
 		text::{Line, Span},
-		widgets::{Block, BorderType, Borders, LineGauge, Paragraph},
+		widgets::{Block, BorderType, Borders, LineGauge, List, ListItem, Paragraph},
 	},
 	std::io::{self, stdout},
 };
@@ -28,6 +28,7 @@ impl Terminal {
 		enable_raw_mode()?;
 		let mut stdout = stdout();
 		let _ = stdout.execute(Hide);
+		let _ = stdout.execute(EnterAlternateScreen)?;
 
 		let backend = ratatui::backend::CrosstermBackend::new(stdout);
 		let terminal = ratatui::Terminal::new(backend)?;
@@ -55,11 +56,11 @@ impl Terminal {
 				.direction(ratatui::layout::Direction::Vertical)
 				.margin(1)
 				.constraints([
-					Constraint::Length(3), // task status area
-					Constraint::Length(1), // progress bar
-					Constraint::Length(1), // status line
-					Constraint::Length(5), // logs area (fills remaining space)
-					Constraint::Length(1), // instructions
+					Constraint::Length(3),   // task status area
+					Constraint::Length(1),   // progress bar
+					Constraint::Length(1),   // status line
+					Constraint::Length(100), // logs area (fills remaining space)
+					Constraint::Length(1),   // instructions
 				])
 				.split(inner_area);
 
@@ -76,7 +77,7 @@ impl Terminal {
 			Self::render_logs(frame, chunks[3], app);
 
 			// render instructions
-			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").style(Style::default().fg(Color::Gray)), chunks[4]);
+			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").centered().style(Style::default().fg(Color::Gray)), chunks[4]);
 		})?;
 
 		Ok(())
@@ -92,13 +93,16 @@ impl Terminal {
 		let inner_area = logs_block.inner(area);
 		frame.render_widget(logs_block, area);
 
-		// each line of log text into a Line object
-		let log_lines: Vec<Line<'_>> = app.log_buffer.iter().map(|log_line| Line::from(log_line.clone())).collect();
+		let max_logs = inner_area.height as usize;
+		if app.log_buffer.len() > max_logs {
+			app.log_buffer.drain(0..(app.log_buffer.len() - max_logs));
+		}
 
-		// a paragraph with the explicit Line objects
-		let log_text = Paragraph::new(log_lines).centered().wrap(ratatui::widgets::Wrap { trim: true });
+		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().cloned().map(ListItem::new).collect();
 
-		frame.render_widget(log_text, inner_area);
+		let logs_list = List::new(log_items).block(Block::default()).style(Style::default());
+
+		frame.render_widget(logs_list, inner_area);
 	}
 
 	fn render_task_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -229,7 +233,6 @@ impl Terminal {
 				} else {
 					format!("{:.1}s", duration.as_secs_f32())
 				};
-
 				frame.render_widget(Paragraph::new(time_text).style(Style::default().fg(Color::DarkGray)), time_area);
 			}
 		}
@@ -267,5 +270,6 @@ impl Drop for Terminal {
 		_ = disable_raw_mode();
 		_ = self.terminal.backend_mut().execute(Show);
 		_ = self.terminal.show_cursor();
+		_ = self.terminal.backend_mut().execute(LeaveAlternateScreen);
 	}
 }

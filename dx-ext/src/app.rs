@@ -1,13 +1,18 @@
 use {
 	crate::{
-		LogLevel,
+		ExtensionCrate, LogLevel,
 		common::{BuilState, BuildStatus, EXMessage, TaskState},
 	},
 	crossterm::event::KeyCode,
+	ratatui::{
+		style::{Color, Style},
+		text::{Line, Span},
+	},
 	std::{
 		collections::HashMap,
 		time::{Duration, Instant},
 	},
+	strum::IntoEnumIterator,
 };
 
 #[derive(Debug, Clone)]
@@ -17,8 +22,7 @@ pub(crate) struct App {
 	pub(crate) throbber_state: throbber_widgets_tui::ThrobberState,
 	pub(crate) tasks: HashMap<String, BuildStatus>,
 	pub(crate) task_history: HashMap<String, TaskState>,
-	pub(crate) logs: String,
-	pub(crate) log_buffer: Vec<String>,
+	pub(crate) log_buffer: Vec<Line<'static>>,
 	pub(crate) max_logs: usize,
 	pub(crate) overall_start_time: Option<Instant>,
 }
@@ -31,7 +35,6 @@ impl App {
 			throbber_state: throbber_widgets_tui::ThrobberState::default(),
 			tasks: HashMap::new(),
 			task_history: HashMap::new(),
-			logs: String::new(),
 			log_buffer: Vec::new(),
 			max_logs: 100,
 			overall_start_time: None,
@@ -81,10 +84,6 @@ impl App {
 		let failed = self.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
 
 		(total, pending, in_progress, completed + failed)
-	}
-
-	pub(crate) fn calculate_elapsed_time(&self) -> Option<Duration> {
-		self.overall_start_time.map(|start| start.elapsed())
 	}
 
 	// update task state and recalculate progress
@@ -208,13 +207,7 @@ impl App {
 					self.should_quit = true;
 				},
 				KeyCode::Char('r') => {
-					// reset tasks and start fresh
-					self.log_buffer.clear();
-					self.tasks.clear();
-					self.task_history.clear();
-					self.overall_start_time = None;
-					self.task_state = BuilState::Idle;
-					self.throbber_state.normalize(&throbber_widgets_tui::Throbber::default());
+					self.reset();
 				},
 				_ => {},
 			},
@@ -256,27 +249,44 @@ impl App {
 	}
 
 	pub(crate) fn add_log(&mut self, level: LogLevel, message: &str) {
-		let prefix = match level {
-			LogLevel::Debug => "[DEBUG]",
-			LogLevel::Info => "[INFO] ",
-			LogLevel::Warn => "[WARN] ",
-			LogLevel::Error => "[ERROR]",
+		let (prefix, color) = match level {
+			LogLevel::Debug => ("[DEBUG]", Color::Blue),
+			LogLevel::Info => ("[INFO] ", Color::Green),
+			LogLevel::Warn => ("[WARN] ", Color::Yellow),
+			LogLevel::Error => ("[ERROR]", Color::Red),
 		};
 
-		println!("this is a log: {}", message);
+		let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 
-		let log_entry = format!("{} {}", prefix, message);
+		let log_line = Line::from(vec![
+			Span::styled(format!("{} ", timestamp), Style::default().fg(Color::DarkGray)),
+			Span::styled(prefix, Style::default().fg(color)),
+			Span::styled(format!(" {}", message), Style::default()),
+		]);
 
-		// add to buffer
-		self.log_buffer.push(log_entry);
+		self.log_buffer.push(log_line);
 
-		// keeping buffer size in check
 		if self.log_buffer.len() > self.max_logs {
 			let excess = self.log_buffer.len() - self.max_logs;
 			self.log_buffer.drain(0..excess);
 		}
+	}
 
-		// updating the log string
-		self.logs = self.log_buffer.join("");
+	pub(crate) fn reset(&mut self) {
+		self.log_buffer.clear();
+		self.add_log(LogLevel::Info, "Resetting application state...");
+
+		self.tasks.clear();
+		self.task_history.clear();
+		self.overall_start_time = Some(Instant::now());
+		self.task_state = BuilState::Idle;
+		self.throbber_state.normalize(&throbber_widgets_tui::Throbber::default());
+
+		self.add_log(LogLevel::Info, "Initializing tasks...");
+		for e_crate in ExtensionCrate::iter() {
+			self.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
+		}
+
+		self.add_log(LogLevel::Info, "Reset complete, awaiting rebuild...");
 	}
 }

@@ -76,6 +76,7 @@ mod app;
 mod common;
 mod efile;
 mod extcrate;
+mod logging;
 mod terminal;
 mod utils;
 
@@ -83,7 +84,7 @@ use {
 	anyhow::{Context, Result},
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
-	common::{BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, LogCallback, LogLevel, PENDING_BUILDS, PENDING_COPIES, TUILogLayer},
+	common::{BuilState, BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
 	crossterm::{
 		ExecutableCommand,
 		cursor::Show,
@@ -94,6 +95,7 @@ use {
 	extcrate::ExtensionCrate,
 	futures::future::{join_all, try_join_all},
 	lazy_static::lazy_static,
+	logging::{LogCallback, LogLevel, TUILogLayer},
 	lowdash::find_uniques,
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
 	std::{io::stdout, path::Path, sync::Arc, time::Duration},
@@ -104,11 +106,8 @@ use {
 		time::sleep,
 	},
 	tokio_util::sync::CancellationToken,
-	tracing::{debug, error, info, warn},
-	tracing_subscriber::{
-		fmt::{format::Writer, time::FormatTime},
-		layer::SubscriberExt,
-	},
+	tracing::{Level, error, info, warn},
+	tracing_subscriber::{FmtSubscriber, layer::SubscriberExt},
 	utils::{clean_dist_directory, create_default_config_toml, read_config},
 };
 
@@ -117,14 +116,6 @@ lazy_static! {
 }
 
 const TICK_RATE_MS: u64 = 100;
-
-struct CustomTime;
-
-impl FormatTime for CustomTime {
-	fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
-		write!(w, "{}", chrono::Local::now().format("%m-%d %H:%M"))
-	}
-}
 
 // Build options shared by Build and Watch commands
 #[derive(Args, Debug, Clone)]
@@ -161,77 +152,83 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
 	let cli = Cli::parse();
-	let (app, terminal, ui_rx, log_callback) = setup_tui().await?;
-
-	let tui_layer = TUILogLayer::new(log_callback);
-	let subscriber = tracing_subscriber::registry().with(tracing_subscriber::fmt::layer().with_timer(CustomTime)).with(tui_layer);
-	tracing::subscriber::set_global_default(subscriber)?;
-
-	let original_hook = std::panic::take_hook();
-	std::panic::set_hook(Box::new(move |info| {
-		let _ = disable_raw_mode();
-		let _ = stdout().execute(Show);
-		original_hook(info);
-	}));
 
 	match cli.command {
-		Commands::Watch(options) => {
-			let mut config = read_config().context("Failed to read configuration")?;
-			config.build_mode = options.mode;
-			debug!("Using extension directory: {}", config.extension_directory_name);
-
-			if options.clean {
-				clean_dist_directory(&config).await?;
-			}
-			hot_reload(config, app, terminal, ui_rx).await?;
-		},
-		Commands::Build(options) => {
-			let mut config = read_config().context("Failed to read configuration")?;
-			config.build_mode = options.mode;
-			debug!("Using extension directory: {}", config.extension_directory_name);
-
-			if options.clean {
-				clean_dist_directory(&config).await?;
-			}
-
-			let cancel_token = CancellationToken::new();
-			let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, cancel_token.clone()));
-
-			for e_crate in ExtensionCrate::iter() {
-				update_task_status(&e_crate.get_task_name(), BuildStatus::InProgress).await;
-
-				let result = e_crate
-					.build_crate(&config, move |progress| {
-						let task_name = e_crate.get_task_name();
-						let _ = tokio::spawn(async move {
-							send_ui_message(EXMessage::TaskProgress(task_name, progress)).await;
-						});
-					})
-					.await;
-
-				match result {
-					Some(Ok(_)) => update_task_status(&e_crate.get_task_name(), BuildStatus::Success).await,
-					Some(Err(e)) => {
-						error!("Failed to build {}: {:?}", e_crate.get_task_name(), e);
-						update_task_status(&e_crate.get_task_name(), BuildStatus::Failed).await;
-					},
-					None => todo!(),
-				}
-			}
-
-			for e_file in EFile::iter() {
-				if let Err(e) = e_file.copy_file_to_dist(&config).await {
-					error!("Failed to copy file: {}", e);
-				}
-			}
-
-			cancel_token.cancel();
-
-			ui_task.await;
-		},
 		Commands::Init(options) => {
+			let subscriber = FmtSubscriber::builder().with_max_level(Level::INFO).finish();
+			let _ = tracing::subscriber::set_global_default(subscriber);
+
 			create_default_config_toml(&options)?;
-			info!("Created dx-ext.toml configuration file");
+			println!("Created dx-ext.toml configuration file");
+			return Ok(());
+		},
+		_ => {
+			let (app, terminal, ui_rx, log_callback) = setup_tui().await?;
+			let tui_layer = TUILogLayer::new(log_callback);
+			let subscriber = tracing_subscriber::registry().with(tui_layer);
+			let _ = tracing::subscriber::set_global_default(subscriber);
+
+			let original_hook = std::panic::take_hook();
+			std::panic::set_hook(Box::new(move |info| {
+				let _ = disable_raw_mode();
+				let _ = stdout().execute(Show);
+				original_hook(info);
+			}));
+
+			match cli.command {
+				Commands::Watch(options) => {
+					let mut config = read_config().context("Failed to read configuration")?;
+					config.build_mode = options.mode;
+					info!("Using extension directory: {}", config.extension_directory_name);
+					if options.clean {
+						clean_dist_directory(&config).await?;
+					}
+					hot_reload(config, app, terminal, ui_rx).await?;
+				},
+				Commands::Build(options) => {
+					let mut config = read_config().context("Failed to read configuration")?;
+					config.build_mode = options.mode;
+					info!("Using extension directory: {}", config.extension_directory_name);
+					if options.clean {
+						clean_dist_directory(&config).await?;
+					}
+					let cancel_token = CancellationToken::new();
+					let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, cancel_token.clone()));
+
+					for e_crate in ExtensionCrate::iter() {
+						update_task_status(&e_crate.get_task_name(), BuildStatus::InProgress).await;
+						let result = e_crate
+							.build_crate(&config, move |progress| {
+								let task_name = e_crate.get_task_name();
+								let _ = tokio::spawn(async move {
+									send_ui_message(EXMessage::TaskProgress(task_name, progress)).await;
+								});
+							})
+							.await;
+
+						match result {
+							Some(Ok(_)) => update_task_status(&e_crate.get_task_name(), BuildStatus::Success).await,
+							Some(Err(e)) => {
+								error!("Failed to build {}: {:?}", e_crate.get_task_name(), e);
+								update_task_status(&e_crate.get_task_name(), BuildStatus::Failed).await;
+							},
+							None => todo!(),
+						}
+					}
+
+					for e_file in EFile::iter() {
+						if let Err(e) = e_file.copy_file_to_dist(&config).await {
+							error!("Failed to copy file: {}", e);
+						}
+					}
+
+					let _ = sleep(Duration::from_millis(500)).await;
+					cancel_token.cancel();
+					let _ = ui_task.await;
+					show_final_build_report(app).await;
+				},
+				_ => unreachable!(),
+			}
 		},
 	}
 
@@ -258,15 +255,14 @@ async fn send_ui_message(message: EXMessage) {
 
 async fn setup_tui() -> Result<(Arc<Mutex<App>>, Terminal, mpsc::UnboundedReceiver<EXMessage>, LogCallback)> {
 	let app = Arc::new(Mutex::new(App::new()));
-	let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+	let ui_rx = initialize_sender().await;
 
 	let log_callback = Arc::new(Mutex::new(move |level: LogLevel, msg: &str| {
-		let formatted_msg = format!("[{:?}] {}", level, msg);
-		let _ = tx.send(formatted_msg);
+		let message = EXMessage::LogMessage(level, msg.to_string());
+		tokio::spawn(send_ui_message(message));
 	}));
 
 	let terminal = Terminal::new()?;
-	let ui_rx = initialize_sender().await;
 
 	Ok((app, terminal, ui_rx, log_callback))
 }
@@ -277,25 +273,58 @@ async fn update_task_status(task_name: &str, status: BuildStatus) {
 
 async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Terminal, ui_rx: mpsc::UnboundedReceiver<EXMessage>) -> Result<()> {
 	let app_clone = app.clone();
-	// init with existing crates
+
 	for e_crate in ExtensionCrate::iter() {
 		app.lock().await.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
 	}
 
-	tokio::join!(
-		join_all(ExtensionCrate::iter().map(|crate_type| async move {
-			PENDING_BUILDS.lock().await.insert(crate_type);
-			update_task_status(&crate_type.get_task_name(), BuildStatus::Pending).await;
-		})),
-		join_all(EFile::iter().map(|e_file| async move {
-			PENDING_COPIES.lock().await.insert(e_file);
-		}))
-	);
-
-	let (tx, rx) = mpsc::channel(100);
 	let cancel_token = CancellationToken::new();
-	let watch_cancel_token = cancel_token.clone();
 	let ui_cancel_token = cancel_token.clone();
+	let watch_cancel_token = cancel_token.clone();
+
+	// UI event loop
+	let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, ui_cancel_token));
+
+	info!("Building extension crates...");
+	for e_crate in ExtensionCrate::iter() {
+		PENDING_BUILDS.lock().await.insert(e_crate);
+		update_task_status(&e_crate.get_task_name(), BuildStatus::InProgress).await;
+
+		let result = e_crate
+			.build_crate(&config, move |progress| {
+				let task_name = e_crate.get_task_name();
+				let _ = tokio::spawn(async move {
+					send_ui_message(EXMessage::TaskProgress(task_name, progress)).await;
+				});
+			})
+			.await;
+
+		match result {
+			Some(Ok(_)) => {
+				update_task_status(&e_crate.get_task_name(), BuildStatus::Success).await;
+				PENDING_BUILDS.lock().await.remove(&e_crate);
+			},
+			Some(Err(e)) => {
+				error!("Build failed for {}: {:?}", e_crate.get_task_name(), e);
+				update_task_status(&e_crate.get_task_name(), BuildStatus::Failed).await;
+			},
+			None => {},
+		}
+	}
+
+	for e_file in EFile::iter() {
+		PENDING_COPIES.lock().await.insert(e_file);
+		if let Err(e) = e_file.copy_file_to_dist(&config).await {
+			error!("Failed to copy file: {}", e);
+		} else {
+			PENDING_COPIES.lock().await.remove(&e_file);
+		}
+	}
+
+	info!("Initial build completed, setting up file watcher...");
+
+	// now the watcher
+	let (tx, rx) = mpsc::channel(100);
 
 	let mut watcher = RecommendedWatcher::new(
 		move |result: NotifyResult<Event>| {
@@ -328,27 +357,28 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Terminal,
 		}
 	}
 
+	// a small delay to ensure watcher is ready
+	sleep(Duration::from_millis(200)).await;
+
 	// watch task
 	let config_clone = config.clone();
 	let watch_task = tokio::spawn(async move {
 		watch_loop(rx, watch_cancel_token, config_clone, app_clone).await;
 	});
 
-	// UI event loop
-	let ui_task = tokio::spawn(async move { run_ui_loop(app, terminal, ui_rx, ui_cancel_token).await });
-
 	tokio::select! {
-		_ = watch_task => {
-			warn!("Watch task completed unexpectedly");
-		}
-		result = ui_task => {
-			if let Err(e) = result {
-				error!("UI task error: {:?}", e);
+			_ = watch_task => {
+					warn!("Watch task completed unexpectedly");
 			}
-		}
+			result = ui_task => {
+					if let Err(e) = result {
+							error!("UI task error: {:?}", e);
+					}
+			}
 	}
 
 	cancel_token.cancel();
+
 	Ok(())
 }
 
@@ -386,36 +416,58 @@ async fn run_ui_loop(
 				if crossterm::event::poll(Duration::from_millis(0))? {
 					if let crossterm::event::Event::Key(key) = event::read()? {
 						if key.kind == KeyEventKind::Press {
-							{
-								let mut app = app.lock().await;
-								app.update(EXMessage::Keypress(key.code));
-							}
-
 							if key.code == KeyCode::Char('r') {
-								clean_dist_directory(&read_config()?).await?;
-								for e_crate in ExtensionCrate::iter() {
-										PENDING_BUILDS.lock().await.insert(e_crate);
-										update_task_status(&e_crate.get_task_name(), BuildStatus::Pending).await;
+								{
+									let mut app = app.lock().await;
+									app.update(EXMessage::Keypress(key.code));
+									if let Err(e) = terminal.draw(&mut app) {
+										error!("Failed to draw UI: {}", e);
+									}
 								}
+
+								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Cleaning dist directory...".to_string())).await;
+
+								if let Err(e) = clean_dist_directory(&read_config()?).await {
+									error!("Failed to clean dist directory: {}", e);
+								}
+
+								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Reinitializing build tasks...".to_string())).await;
+
+								for e_crate in ExtensionCrate::iter() {
+									PENDING_BUILDS.lock().await.insert(e_crate);
+									update_task_status(&e_crate.get_task_name(), BuildStatus::Pending).await;
+
+									{
+										let mut app = app.lock().await;
+										if let Err(e) = terminal.draw(&mut app) {
+											error!("Failed to draw UI: {}", e);
+										}
+									}
+								}
+
 								for e_file in EFile::iter() {
 										PENDING_COPIES.lock().await.insert(e_file);
 								}
 
+								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Starting rebuild process...".to_string())).await;
+
+								sleep(Duration::from_millis(100)).await;
+
 								process_pending_events(&read_config()?, app.clone()).await;
-							}
+						}
 
 							if key.code == KeyCode::Char('q') ||
 								(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
 									let mut app = app.lock().await;
-									app.should_quit = true;
+									app.update(EXMessage::Exit);
 							}
 						}
 					}
 				}
 			}
 			Some(ui_msg) = ui_rx.recv() => {
-					let mut app = app.lock().await;
-					app.update(ui_msg);
+				let mut app = app.lock().await;
+				app.update(ui_msg);
 			}
 		}
 	}
@@ -564,4 +616,40 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 			}
 		}
 	}
+}
+
+// show build status after build
+async fn show_final_build_report(app: Arc<Mutex<App>>) {
+	let app_guard = app.lock().await;
+	let (total, _, _, _) = app_guard.get_task_stats();
+	let failed = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
+	let successful = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
+
+	println!("\n--- Build Summary ---");
+
+	match app_guard.task_state {
+		BuilState::Complete { duration } => {
+			let time_str =
+				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
+			println!("✅ Build completed successfully in {}", time_str);
+			println!("   Total tasks: {}, All successful", total);
+		},
+		BuilState::Failed { duration } => {
+			let time_str =
+				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
+			println!("❌ Build failed in {}", time_str);
+			println!("   Total tasks: {}, Successful: {}, Failed: {}", total, successful, failed);
+
+			println!("\nFailed tasks:");
+			for (task_name, status) in &app_guard.tasks {
+				if *status == BuildStatus::Failed {
+					println!("   ❌ {}", task_name);
+				}
+			}
+		},
+		_ => {
+			println!("Build process was interrupted");
+		},
+	}
+	println!("-------------------\n");
 }

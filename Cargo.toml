@@ -71,7 +71,7 @@ tailwind_fuse = { version = "0.3.2", features = ["variant"] }
 unsafe_code = "deny"
 
 elided_lifetimes_in_paths = "warn"
-rust_2021_idioms = "warn"
+rust_2018_idioms = "warn"
 rust_2021_prelude_collisions = "warn"
 semicolon_in_expressions_from_macros = "warn"
 trivial_numeric_casts = "warn"

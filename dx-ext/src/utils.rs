@@ -1,7 +1,7 @@
 use {
 	crate::common::{BuildMode, ExtConfig, InitOptions, TomlConfig},
 	anyhow::{Context, Result},
-	dialoguer::Input,
+	dialoguer::{Confirm, Input},
 	std::{fs, path::Path},
 	tracing::info,
 };
@@ -19,14 +19,15 @@ pub(crate) fn read_config() -> Result<ExtConfig> {
 		popup_name: parsed_toml.extension_config.popup_name,
 		assets_dir: parsed_toml.extension_config.assets_directory,
 		build_mode: BuildMode::Development,
+		enable_incremental_builds: parsed_toml.extension_config.enable_incremental_builds,
 	})
 }
 
 pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<()> {
-	println!("Welcome to the Dioxus Browser Extension Builder Setup");
+	info!("Welcome to the Dioxus Browser Extension Builder Setup");
 
 	if Path::new("dx-ext.toml").exists() && !options.force {
-		println!("Config file already exists. Use --force to overwrite.");
+		info!("Config file already exists. Use --force to overwrite.");
 		return Ok(());
 	}
 
@@ -54,6 +55,12 @@ pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<()> {
 		options.content_script.clone()
 	};
 
+	let enable_incremental_builds = if options.interactive {
+		Confirm::new().with_prompt("Enable incremental builds?").default(options.enable_incremental_builds).interact()?
+	} else {
+		options.enable_incremental_builds
+	};
+
 	let assets_dir = if options.interactive {
 		Input::new().with_prompt("Enter assets directory").default(options.assets_dir.clone()).interact_text()?
 	} else {
@@ -62,22 +69,25 @@ pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<()> {
 
 	let config_content = format!(
 		r#"[extension-config]
-assets-directory = "{assets_dir}"                    # your assets directory relative to the extension directory
-background-script-index-name = "{background_script}"        # name of your background script entry point
-content-script-index-name = "{content_script}"           # name of your content script entry point
-extension-directory-name = "{extension_dir}"            # name of your extension directory
-popup-name = "{popup_name}"                          # name of your popup crate
-"#
+assets-directory = "{assets_dir}"
+background-script-index-name = "{background_script}"
+content-script-index-name = "{content_script}"
+extension-directory-name = "{extension_dir}"
+popup-name = "{popup_name}"
+enable-incremental-builds = {}
+"#,
+		enable_incremental_builds
 	);
 
 	fs::write("dx-ext.toml", config_content).context("Failed to write dx-ext.toml file")?;
 
-	println!("Configuration created successfully:");
-	println!("  Extension directory: {extension_dir}");
-	println!("  Popup crate: {popup_name}");
-	println!("  Background script: {background_script}");
-	println!("  Content script: {content_script}");
-	println!("  Assets directory: {assets_dir}");
+	info!("Configuration created successfully:");
+	info!("  Extension directory: {extension_dir}");
+	info!("  Popup crate: {popup_name}");
+	info!("  Background script: {background_script}");
+	info!("  Content script: {content_script}");
+	info!("  Assets directory: {assets_dir}");
+	info!("  Enable incremental builds: {}", enable_incremental_builds);
 
 	Ok(())
 }

@@ -3,7 +3,8 @@ use {
 	anyhow::{Context, Result},
 	futures::future::try_join_all,
 	std::{
-		fs, io,
+		fs,
+		io::{self, Read},
 		path::{Path, PathBuf},
 	},
 	tracing::{debug, info, warn},
@@ -49,12 +50,13 @@ impl EFile {
 	}
 
 	fn calculate_file_hash(path: &Path) -> Result<String> {
-		let mut file = fs::File::open(path).with_context(|| format!("Failed to open file for hashing: {path:?}"))?;
+		let file = fs::File::open(path).with_context(|| format!("Failed to open file for hashing: {path:?}"))?;
+		let mut reader = io::BufReader::new(file);
 		let mut hasher = blake3::Hasher::new();
 
-		let mut buffer = [0; 8192];
+		let mut buffer = [0; 32768];
 		loop {
-			let bytes_read = io::Read::read(&mut file, &mut buffer).with_context(|| format!("Failed to read file for hashing: {path:?}"))?;
+			let bytes_read = reader.read(&mut buffer).with_context(|| format!("Failed to read file for hashing: {path:?}"))?;
 
 			if bytes_read == 0 {
 				break;
@@ -72,72 +74,68 @@ impl EFile {
 			return Err(anyhow::anyhow!("Source file does not exist: {:?}", src));
 		}
 
-		let mut hashes = FILE_HASHES.lock().await;
+		let src_metadata = fs::metadata(src).with_context(|| format!("Failed to get metadata for source file: {src:?}"))?;
+		let src_len = src_metadata.len();
+		let src_time = src_metadata.modified().ok();
+
+		let dest_exists = dest.exists();
+		let dest_metadata =
+			if dest_exists { Some(fs::metadata(dest).with_context(|| format!("Failed to get metadata for destination file: {dest:?}"))?) } else { None };
+
+		let hashes = FILE_HASHES.lock().await;
 		let mut timestamps = FILE_TIMESTAMPS.lock().await;
 
-		// check if destination exists and get its metadata
-		let copy_needed = if dest.exists() {
-			let src_metadata = fs::metadata(src).with_context(|| format!("Failed to get metadata for source file: {src:?}"))?;
-			let dest_metadata = fs::metadata(dest).with_context(|| format!("Failed to get metadata for destination file: {dest:?}"))?;
+		let copy_needed = if dest_exists && dest_metadata.is_some() {
+			let dest_metadata = dest_metadata.unwrap();
 
-			// check if sizes differ - quick check before hashing
-			if src_metadata.len() != dest_metadata.len() {
+			if src_len != dest_metadata.len() {
 				true
-			} else if let Ok(src_time) = src_metadata.modified() {
-				// if we have a stored timestamp for the source file
-				if let Some(stored_time) = timestamps.get(src) {
-					if *stored_time == src_time {
-						// file hasn't changed since last check
-						false
-					} else {
-						// file changed, check content hash
+			} else if let Some(src_time) = src_time {
+				match timestamps.get(src) {
+					Some(stored_time) if *stored_time == src_time => false,
+					_ => {
+						drop(hashes);
+						drop(timestamps);
+
 						let src_hash = Self::calculate_file_hash(src)?;
 						let dest_hash = Self::calculate_file_hash(dest)?;
 
+						let mut hashes = FILE_HASHES.lock().await;
+						let mut timestamps = FILE_TIMESTAMPS.lock().await;
+
 						if src_hash != dest_hash {
-							// update the hash
 							hashes.insert(src.to_path_buf(), src_hash);
 							timestamps.insert(src.to_path_buf(), src_time);
 							true
 						} else {
-							// update timestamp even though content hasn't changed
 							timestamps.insert(src.to_path_buf(), src_time);
 							false
 						}
-					}
-				} else {
-					// no stored timestamp, compare hashes
-					let src_hash = Self::calculate_file_hash(src)?;
-					let dest_hash = Self::calculate_file_hash(dest)?;
-
-					if src_hash != dest_hash {
-						hashes.insert(src.to_path_buf(), src_hash);
-						timestamps.insert(src.to_path_buf(), src_time);
-						true
-					} else {
-						timestamps.insert(src.to_path_buf(), src_time);
-						false
-					}
+					},
 				}
 			} else {
-				// if we can't get modification time, fall back to hash comparison
+				drop(hashes);
+				drop(timestamps);
+
 				let src_hash = Self::calculate_file_hash(src)?;
 				let dest_hash = Self::calculate_file_hash(dest)?;
+
+				let mut hashes = FILE_HASHES.lock().await;
 
 				hashes.insert(src.to_path_buf(), src_hash.clone());
 				src_hash != dest_hash
 			}
 		} else {
-			// destination doesn't exist, copy is needed
-			// also store the hash for future comparisons
-			if let Ok(src_metadata) = fs::metadata(src) {
-				if let Ok(modified) = src_metadata.modified() {
-					timestamps.insert(src.to_path_buf(), modified);
-				}
+			// store hash and timestamp for future comparisons
+			if let Some(src_time) = src_time {
+				timestamps.insert(src.to_path_buf(), src_time);
 			}
 
+			drop(hashes);
+			drop(timestamps);
+
 			if let Ok(hash) = Self::calculate_file_hash(src) {
-				hashes.insert(src.to_path_buf(), hash);
+				FILE_HASHES.lock().await.insert(src.to_path_buf(), hash);
 			}
 
 			true
@@ -166,35 +164,37 @@ impl EFile {
 			return Err(anyhow::anyhow!("Source directory does not exist: {:?}", src));
 		}
 
-		// create destination directory if it doesn't exist
 		fs::create_dir_all(dst).with_context(|| format!("Failed to create destination directory: {dst:?}"))?;
 
-		// directory entries read
 		let entries = fs::read_dir(src).with_context(|| format!("Failed to read source directory: {src:?}"))?.collect::<Result<Vec<_>, _>>()?;
 
-		let copy_futures = entries.into_iter().map(|entry| {
-			let src_path = entry.path();
-			let dst_path = dst.join(entry.file_name());
+		const BATCH_SIZE: usize = 16;
+		let mut any_copied = false;
 
-			async move {
-				let ty = entry.file_type().with_context(|| format!("Failed to get file type for: {src_path:?}"))?;
+		for chunk in entries.chunks(BATCH_SIZE) {
+			let futures = chunk.iter().map(|entry| {
+				let src_path = entry.path();
+				let dst_path = dst.join(entry.file_name());
+				let file_type = entry.file_type().with_context(|| format!("Failed to get file type for: {src_path:?}"));
 
-				if ty.is_dir() {
-					Self::copy_dir_all(&src_path, &dst_path).await
-				} else if ty.is_file() {
-					Self::copy_file(&src_path, &dst_path).await
-				} else {
-					// skip symlinks and other special files
-					debug!("Skipping non-regular file: {:?}", src_path);
-					Ok(false)
+				async move {
+					match file_type {
+						Ok(ty) if ty.is_dir() => Self::copy_dir_all(&src_path, &dst_path).await,
+						Ok(ty) if ty.is_file() => Self::copy_file(&src_path, &dst_path).await,
+						Ok(_) => {
+							debug!("Skipping non-regular file: {:?}", src_path);
+							Ok(false)
+						},
+						Err(e) => Err(e),
+					}
 				}
-			}
-		});
+			});
 
-		let results = try_join_all(copy_futures).await?;
+			let results = try_join_all(futures).await?;
+			any_copied |= results.into_iter().any(|copied| copied);
+		}
 
-		// true if any files were copied
-		Ok(results.into_iter().any(|copied| copied))
+		Ok(any_copied)
 	}
 
 	pub(crate) async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
