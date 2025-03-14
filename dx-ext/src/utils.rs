@@ -1,8 +1,12 @@
 use {
-	crate::common::{BuildMode, ExtConfig, InitOptions, TomlConfig},
+	crate::{
+		App,
+		common::{BuilState, BuildMode, BuildStatus, ExtConfig, InitOptions, TomlConfig},
+	},
 	anyhow::{Context, Result},
 	dialoguer::{Confirm, Input},
-	std::{fs, path::Path},
+	std::{fs, path::Path, sync::Arc},
+	tokio::sync::Mutex,
 	tracing::info,
 };
 
@@ -105,4 +109,40 @@ pub(crate) async fn clean_dist_directory(config: &ExtConfig) -> Result<()> {
 	fs::create_dir_all(dist_path).with_context(|| format!("Failed to create dist directory: {dist_path:?}"))?;
 
 	Ok(())
+}
+
+// show build status after build
+pub async fn show_final_build_report(app: Arc<Mutex<App>>) {
+	let app_guard = app.lock().await;
+	let (total, _, _, _) = app_guard.get_task_stats();
+	let failed = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
+	let successful = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
+
+	println!("\n--- Build Summary ---");
+
+	match app_guard.task_state {
+		BuilState::Complete { duration } => {
+			let time_str =
+				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
+			println!("✅ Build completed successfully in {}", time_str);
+			println!("   Total tasks: {}, All successful", total);
+		},
+		BuilState::Failed { duration } => {
+			let time_str =
+				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
+			println!("❌ Build failed in {}", time_str);
+			println!("   Total tasks: {}, Successful: {}, Failed: {}", total, successful, failed);
+
+			println!("\nFailed tasks:");
+			for (task_name, status) in &app_guard.tasks {
+				if *status == BuildStatus::Failed {
+					println!("   ❌ {}", task_name);
+				}
+			}
+		},
+		_ => {
+			println!("Build process was interrupted");
+		},
+	}
+	println!("-------------------\n");
 }

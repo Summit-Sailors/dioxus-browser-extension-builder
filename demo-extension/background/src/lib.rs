@@ -10,7 +10,7 @@ pub fn init_background() -> Result<(), JsValue> {
 
 	let global = js_sys::global();
 
-	let chrome = js_sys::Reflect::get(&global, &JsValue::from_str("chrome")).expect("Expected 'chrome' property in global object");
+	let chrome = js_sys::Reflect::get(&global, &JsValue::from_str("chrome")).expect("Expected 'chrome' in global object");
 	let runtime = js_sys::Reflect::get(&chrome, &JsValue::from_str("runtime")).expect("Expected 'runtime' property on chrome object");
 	let on_message = js_sys::Reflect::get(&runtime, &JsValue::from_str("onMessage")).expect("Expected 'onMessage' property on runtime");
 	let add_listener = js_sys::Reflect::get(&on_message, &JsValue::from_str("addListener")).expect("Expected 'addListener' property on onMessage");

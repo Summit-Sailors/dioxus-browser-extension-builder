@@ -279,12 +279,13 @@ impl App {
 		self.tasks.clear();
 		self.task_history.clear();
 		self.overall_start_time = Some(Instant::now());
-		self.task_state = BuilState::Idle;
+		self.task_state = BuilState::Running { progress: 0.0, start_time: Instant::now() };
 		self.throbber_state.normalize(&throbber_widgets_tui::Throbber::default());
 
 		self.add_log(LogLevel::Info, "Initializing tasks...");
 		for e_crate in ExtensionCrate::iter() {
 			self.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
+			self.task_history.insert(e_crate.get_task_name(), TaskState::default());
 		}
 
 		self.add_log(LogLevel::Info, "Reset complete, awaiting rebuild...");

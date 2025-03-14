@@ -53,6 +53,7 @@
 //! assets-directory = "popup/assets"                   # your assets directory relative to the extension directory
 //! background-script-index-name = "background_index.js"       # name of your background script entry point
 //! content-script-index-name = "content_index.js"          # name of your content script entry point
+//! enable-incremental-builds = false                    # enable incremental builds for watch command
 //! extension-directory-name = "extension"            # name of your extension directory
 //! popup-name = "popup"                          # name of your popup crate
 //! ```
@@ -71,6 +72,13 @@
 //! - `BackgroundScript`: The background script entry point
 //! - `ContentScript`: The content script entry point
 //! - `Assets`: Additional assets required by the extension
+//!
+//! Build operations for crates are managed through the `ExtensionCrate` enum which uses `wasm-pack`:
+//! - It represents different browser extension components: Popup, Background, and Content.
+//! - It provides methods to get the crate name and task name for each component.
+//! - The needs_rebuild function checks if a rebuild is necessary based on file timestamps.
+//! - The build_crate function runs wasm-pack build, tracking progress with a callback.
+//! - It includes error handling, incremental builds, and phase-based progress estimation.
 
 mod app;
 mod common;
@@ -84,7 +92,7 @@ use {
 	anyhow::{Context, Result},
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
-	common::{BuilState, BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
+	common::{BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
 	crossterm::{
 		ExecutableCommand,
 		cursor::Show,
@@ -107,8 +115,12 @@ use {
 	},
 	tokio_util::sync::CancellationToken,
 	tracing::{Level, error, info, warn},
-	tracing_subscriber::{FmtSubscriber, layer::SubscriberExt},
-	utils::{clean_dist_directory, create_default_config_toml, read_config},
+	tracing_subscriber::{
+		FmtSubscriber,
+		fmt::{format::Writer, time::FormatTime},
+		layer::SubscriberExt,
+	},
+	utils::{clean_dist_directory, create_default_config_toml, read_config, show_final_build_report},
 };
 
 lazy_static! {
@@ -149,13 +161,21 @@ enum Commands {
 	Init(InitOptions),
 }
 
+struct CustomTime;
+
+impl FormatTime for CustomTime {
+	fn format_time(&self, w: &mut Writer<'_>) -> std::fmt::Result {
+		write!(w, "{}", chrono::Local::now().format("%m-%d %H:%M"))
+	}
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
 	let cli = Cli::parse();
 
 	match cli.command {
 		Commands::Init(options) => {
-			let subscriber = FmtSubscriber::builder().with_max_level(Level::INFO).finish();
+			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).finish();
 			let _ = tracing::subscriber::set_global_default(subscriber);
 
 			create_default_config_toml(&options)?;
@@ -222,7 +242,7 @@ async fn main() -> Result<()> {
 						}
 					}
 
-					let _ = sleep(Duration::from_millis(500)).await;
+					let _ = sleep(Duration::from_millis(500)).await; // wait for full UI update
 					cancel_token.cancel();
 					let _ = ui_task.await;
 					show_final_build_report(app).await;
@@ -253,7 +273,7 @@ async fn send_ui_message(message: EXMessage) {
 	}
 }
 
-async fn setup_tui() -> Result<(Arc<Mutex<App>>, Terminal, mpsc::UnboundedReceiver<EXMessage>, LogCallback)> {
+async fn setup_tui() -> Result<(Arc<Mutex<App>>, Arc<Mutex<Terminal>>, mpsc::UnboundedReceiver<EXMessage>, LogCallback)> {
 	let app = Arc::new(Mutex::new(App::new()));
 	let ui_rx = initialize_sender().await;
 
@@ -262,7 +282,7 @@ async fn setup_tui() -> Result<(Arc<Mutex<App>>, Terminal, mpsc::UnboundedReceiv
 		tokio::spawn(send_ui_message(message));
 	}));
 
-	let terminal = Terminal::new()?;
+	let terminal = Arc::new(Mutex::new(Terminal::new()?));
 
 	Ok((app, terminal, ui_rx, log_callback))
 }
@@ -271,8 +291,9 @@ async fn update_task_status(task_name: &str, status: BuildStatus) {
 	send_ui_message(EXMessage::UpdateTask(task_name.to_string(), status)).await;
 }
 
-async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Terminal, ui_rx: mpsc::UnboundedReceiver<EXMessage>) -> Result<()> {
+async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>, ui_rx: mpsc::UnboundedReceiver<EXMessage>) -> Result<()> {
 	let app_clone = app.clone();
+	let terminal_clone = terminal.clone();
 
 	for e_crate in ExtensionCrate::iter() {
 		app.lock().await.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
@@ -363,18 +384,18 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Terminal,
 	// watch task
 	let config_clone = config.clone();
 	let watch_task = tokio::spawn(async move {
-		watch_loop(rx, watch_cancel_token, config_clone, app_clone).await;
+		watch_loop(rx, watch_cancel_token, config_clone, app_clone, terminal_clone).await;
 	});
 
 	tokio::select! {
-			_ = watch_task => {
-					warn!("Watch task completed unexpectedly");
+		_ = watch_task => {
+			warn!("Watch task completed unexpectedly");
+		}
+		result = ui_task => {
+			if let Err(e) = result {
+				error!("UI task error: {:?}", e);
 			}
-			result = ui_task => {
-					if let Err(e) = result {
-							error!("UI task error: {:?}", e);
-					}
-			}
+		}
 	}
 
 	cancel_token.cancel();
@@ -384,12 +405,11 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Terminal,
 
 async fn run_ui_loop(
 	app: Arc<Mutex<App>>,
-	mut terminal: Terminal,
+	terminal: Arc<Mutex<Terminal>>,
 	mut ui_rx: mpsc::UnboundedReceiver<EXMessage>,
 	cancel_token: CancellationToken,
 ) -> Result<()> {
 	let mut interval = tokio::time::interval(Duration::from_millis(TICK_RATE_MS));
-
 	loop {
 		tokio::select! {
 			_ = cancel_token.cancelled() => break,
@@ -399,83 +419,99 @@ async fn run_ui_loop(
 					let mut app = app.lock().await;
 					app.update(EXMessage::Tick);
 				}
-
 				// UI draw
 				{
 					let mut app_guard = app.lock().await;
 					if app_guard.should_quit {
 						break;
 					}
-					if let Err(e) = terminal.draw(&mut app_guard) {
+					let mut terminal_guard = terminal.lock().await;
+					if let Err(e) = terminal_guard.draw(&mut app_guard) {
 						error!("Failed to draw UI: {}", e);
 						break;
 					}
 				}
-
 				// checking for key events
 				if crossterm::event::poll(Duration::from_millis(0))? {
 					if let crossterm::event::Event::Key(key) = event::read()? {
 						if key.kind == KeyEventKind::Press {
 							if key.code == KeyCode::Char('r') {
 								{
-									let mut app = app.lock().await;
-									app.update(EXMessage::Keypress(key.code));
-									if let Err(e) = terminal.draw(&mut app) {
+									let mut app_guard = app.lock().await;
+									let _ = app_guard.update(EXMessage::Keypress(key.code));
+									let mut terminal_guard = terminal.lock().await;
+									if let Err(e) = terminal_guard.draw(&mut app_guard) {
 										error!("Failed to draw UI: {}", e);
 									}
 								}
 
 								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Cleaning dist directory...".to_string())).await;
-
 								if let Err(e) = clean_dist_directory(&read_config()?).await {
 									error!("Failed to clean dist directory: {}", e);
 								}
 
-								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Reinitializing build tasks...".to_string())).await;
+								{
+									let mut app_guard = app.lock().await;
+									let mut terminal_guard = terminal.lock().await;
+									if let Err(e) = terminal_guard.draw(&mut app_guard) {
+										error!("Failed to draw UI: {}", e);
+									}
+								}
 
+								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Reinitializing build tasks...".to_string())).await;
 								for e_crate in ExtensionCrate::iter() {
 									PENDING_BUILDS.lock().await.insert(e_crate);
 									update_task_status(&e_crate.get_task_name(), BuildStatus::Pending).await;
 
 									{
-										let mut app = app.lock().await;
-										if let Err(e) = terminal.draw(&mut app) {
+										let mut app_guard = app.lock().await;
+										let mut terminal_guard = terminal.lock().await;
+										if let Err(e) = terminal_guard.draw(&mut app_guard) {
 											error!("Failed to draw UI: {}", e);
 										}
 									}
 								}
 
 								for e_file in EFile::iter() {
-										PENDING_COPIES.lock().await.insert(e_file);
+									PENDING_COPIES.lock().await.insert(e_file);
 								}
 
 								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Starting rebuild process...".to_string())).await;
 
-								sleep(Duration::from_millis(100)).await;
-
-								process_pending_events(&read_config()?, app.clone()).await;
+								{
+									let mut app_guard = app.lock().await;
+									app_guard.update(EXMessage::BuildProgress(0.0));
+									let mut terminal_guard = terminal.lock().await;
+									if let Err(e) = terminal_guard.draw(&mut app_guard) {
+											error!("Failed to draw UI: {}", e);
+									}
+							}
+								process_pending_events(&read_config()?, app.clone(), terminal.clone()).await;
 						}
 
 							if key.code == KeyCode::Char('q') ||
 								(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
-									let mut app = app.lock().await;
-									app.update(EXMessage::Exit);
+								let mut app_guard = app.lock().await;
+								app_guard.update(EXMessage::Exit);
 							}
 						}
 					}
 				}
 			}
 			Some(ui_msg) = ui_rx.recv() => {
-				let mut app = app.lock().await;
-				app.update(ui_msg);
+				let mut app_guard = app.lock().await;
+				app_guard.update(ui_msg);
+				let mut terminal_guard = terminal.lock().await;
+				if let Err(e) = terminal_guard.draw(&mut app_guard) {
+						error!("Failed to draw UI: {}", e);
+				}
 			}
 		}
 	}
-
 	Ok(())
 }
 
-async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationToken, config: ExtConfig, app: Arc<Mutex<App>>) {
+async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationToken, config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>) {
 	let mut pending_events = tokio::time::interval(Duration::from_secs(1));
 
 	loop {
@@ -486,7 +522,7 @@ async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationTok
 				pending_events.reset();
 			}
 			_ = pending_events.tick() => {
-				process_pending_events(&config, app.clone()).await;
+				process_pending_events(&config, app.clone(), terminal.clone()).await;
 			}
 		}
 	}
@@ -546,7 +582,7 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 	}
 }
 
-async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
+async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>) {
 	let builds = PENDING_BUILDS.lock().await.drain().collect::<Vec<_>>();
 	let copies = PENDING_COPIES.lock().await.drain().collect::<Vec<_>>();
 
@@ -554,58 +590,102 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 		return;
 	}
 
+	async fn redraw_ui(app: &Arc<Mutex<App>>, terminal: &Arc<Mutex<Terminal>>) {
+		let mut app_guard = app.lock().await;
+		let mut terminal_guard = terminal.lock().await;
+		if let Err(e) = terminal_guard.draw(&mut app_guard) {
+			error!("Failed to draw UI: {}", e);
+		}
+	}
+
 	for build in &builds {
 		update_task_status(&build.get_task_name(), BuildStatus::InProgress).await;
 	}
+	redraw_ui(&app, &terminal).await;
 
-	let build_results = join_all(builds.iter().map(|crate_type| async move {
+	let build_results = join_all(builds.iter().map(|crate_type| {
+		let app_clone = Arc::clone(&app);
+		let terminal_clone = Arc::clone(&terminal);
 		let task_name = crate_type.get_task_name();
-		let task_name_clone = task_name.clone();
 
-		update_task_status(&task_name, BuildStatus::InProgress).await;
-		send_ui_message(EXMessage::TaskProgress(task_name.clone(), 0.0)).await;
+		async move {
+			let task_name_clone = task_name.clone();
 
-		let result = crate_type
-			.build_crate(config, move |progress| {
-				let progress_task_name = task_name_clone.clone();
-				let _ = tokio::spawn(async move {
-					send_ui_message(EXMessage::TaskProgress(progress_task_name, progress)).await;
-				});
-			})
-			.await;
+			send_ui_message(EXMessage::TaskProgress(task_name_clone.clone(), 0.0)).await;
 
-		let status = match &result {
-			Some(Ok(_)) => {
-				send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
-				BuildStatus::Success
-			},
-			Some(Err(_)) | None => {
-				send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
-				BuildStatus::Failed
-			},
-		};
+			let progress_app = Arc::clone(&app_clone);
+			let progress_terminal = Arc::clone(&terminal_clone);
 
-		update_task_status(&task_name, status).await;
+			let result = crate_type
+				.build_crate(config, move |progress| {
+					let progress_task_name = task_name_clone.clone();
+					let inner_app = Arc::clone(&progress_app);
+					let inner_terminal = Arc::clone(&progress_terminal);
 
-		sleep(Duration::from_millis(100)).await;
+					let _ = tokio::spawn(async move {
+						send_ui_message(EXMessage::TaskProgress(progress_task_name, progress)).await;
 
-		match result {
-			Some(r) => r,
-			None => Err(anyhow::anyhow!("Build process failed for {}", task_name)),
+						{
+							let mut app_guard = inner_app.lock().await;
+							let mut terminal_guard = inner_terminal.lock().await;
+							if let Err(e) = terminal_guard.draw(&mut app_guard) {
+								error!("Failed to draw UI: {}", e);
+							}
+						}
+					});
+				})
+				.await;
+
+			let status = match &result {
+				Some(Ok(_)) => {
+					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
+					BuildStatus::Success
+				},
+				Some(Err(_)) | None => {
+					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
+					BuildStatus::Failed
+				},
+			};
+
+			update_task_status(&task_name, status).await;
+
+			{
+				let mut app_guard = app_clone.lock().await;
+				let mut terminal_guard = terminal_clone.lock().await;
+				if let Err(e) = terminal_guard.draw(&mut app_guard) {
+					error!("Failed to draw UI: {}", e);
+				}
+			}
+
+			match result {
+				Some(r) => r,
+				None => Err(anyhow::anyhow!("Build process failed for {}", task_name.clone())),
+			}
 		}
 	}))
 	.await;
 
-	let copy_results = try_join_all(copies.into_iter().map(|e_file| e_file.copy_file_to_dist(config))).await;
+	let copy_futures = copies.into_iter().map(|e_file| {
+		let app = Arc::clone(&app);
+		let terminal = Arc::clone(&terminal);
+
+		async move {
+			let result = e_file.copy_file_to_dist(config).await;
+			redraw_ui(&app, &terminal).await;
+			result
+		}
+	});
+
+	let copy_results = try_join_all(copy_futures).await;
 
 	for result in build_results {
 		if let Err(e) = result {
-			error!("Error during build: {} ", e);
+			error!("Error during build: {}", e);
 		}
 	}
 
 	if let Err(e) = copy_results {
-		error!("Error during copy: {} ", e);
+		error!("Error during copy: {}", e);
 	}
 
 	for e_crate in ExtensionCrate::iter() {
@@ -616,40 +696,6 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 			}
 		}
 	}
-}
 
-// show build status after build
-async fn show_final_build_report(app: Arc<Mutex<App>>) {
-	let app_guard = app.lock().await;
-	let (total, _, _, _) = app_guard.get_task_stats();
-	let failed = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
-	let successful = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
-
-	println!("\n--- Build Summary ---");
-
-	match app_guard.task_state {
-		BuilState::Complete { duration } => {
-			let time_str =
-				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
-			println!("✅ Build completed successfully in {}", time_str);
-			println!("   Total tasks: {}, All successful", total);
-		},
-		BuilState::Failed { duration } => {
-			let time_str =
-				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
-			println!("❌ Build failed in {}", time_str);
-			println!("   Total tasks: {}, Successful: {}, Failed: {}", total, successful, failed);
-
-			println!("\nFailed tasks:");
-			for (task_name, status) in &app_guard.tasks {
-				if *status == BuildStatus::Failed {
-					println!("   ❌ {}", task_name);
-				}
-			}
-		},
-		_ => {
-			println!("Build process was interrupted");
-		},
-	}
-	println!("-------------------\n");
+	redraw_ui(&app, &terminal).await;
 }

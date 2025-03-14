@@ -1,6 +1,6 @@
 # Dioxus Browser Extension Builder
 
-A CLI tool for building browser extensions with Dioxus.
+A CLI tool for building browser extensions for Dioxus.
 
 ## Overview
 
@@ -25,6 +25,12 @@ This tool handles:
 git clone https://github.com/Summit-Sailors/dioxus-browser-extension-builder.git
 cd dioxus-browser-extension-builder
 cargo install --path ./dx-ext
+```
+
+### From [crates.io](https://crates.io/crates/dx-ext)
+
+```bash
+cargo add dx-ext
 ```
 
 ## Quick Start
@@ -54,7 +60,10 @@ dx-ext init
 dx-ext init --extension-dir my-extension --popup-name my-popup --background-script bg.js --content-script cs.js --assets-dir assets
 
 # Create interactively
-dx-ext init --interactive
+dx-ext init --interactive / dx-ext init -i
+
+# Overwrite the existing config file
+dx-ext init --force / dx-ext init -f
 ```
 
 Options:
@@ -94,6 +103,12 @@ Starts the file watcher and automatically rebuilds components when files change.
 
 ```bash
 dx-ext watch
+
+# For clean re-builds
+dx-ext watch --clean # to remove previous build artifacts
+
+# For release re-builds
+dx-ext watxh --mode release
 ```
 
 This command:
@@ -101,17 +116,18 @@ This command:
 1. Builds all extension components initially
 2. Watches for file changes in the extension directory
 3. Rebuilds and copies files as needed when changes are detected
-4. Press Ctrl+C to stop the watcher
+4. Press `Ctrl+C` or `r` to stop the watcher
 
 ## Configuration
 
-The tool is configured using a `dx-ext.toml` file in the project root:
+The tool is configured using a `dx-ext.toml` file in the project root(Workspace):
 
 ```toml
 [extension-config]
 assets-directory = "popup/assets"                    # your assets directory relative to the extension directory
 background-script-index-name = "background_index.js" # name of your background script entry point
 content-script-index-name = "content_index.js"       # name of your content script entry point
+enable-incremental-builds = false                    # enable incremental builds for watch command
 extension-directory-name = "extension"               # name of your extension directory
 popup-name = "popup"                                 # name of your popup crate
 ```
@@ -124,6 +140,7 @@ popup-name = "popup"                                 # name of your popup crate
 | `background-script-index-name` | Name of your background script entry point                        | `"background_index.js"` |
 | `content-script-index-name`    | Name of your content script entry point                           | `"content_index.js"`    |
 | `extension-directory-name`     | Name of your extension directory                                  | `"extension"`           |
+| `enable-incremental-builds`    | Enable incremental builds for watch command                       | `false`                 |
 | `popup-name`                   | Name of your popup crate                                          | `"popup"`               |
 
 ## Project Structure

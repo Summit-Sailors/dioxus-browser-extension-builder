@@ -77,7 +77,7 @@ impl Terminal {
 			Self::render_logs(frame, chunks[3], app);
 
 			// render instructions
-			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").centered().style(Style::default().fg(Color::Gray)), chunks[4]);
+			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q'/'Ctrl+C' to quit").centered().style(Style::default().fg(Color::Gray)), chunks[4]);
 		})?;
 
 		Ok(())
@@ -126,13 +126,17 @@ impl Terminal {
 		let (progress, style, label, is_running) = if !app.has_active_tasks() {
 			(0.0, Style::default().fg(Color::DarkGray), " No active tasks ".to_string(), false)
 		} else {
-			let (total, _pending, in_progress, _completed) = app.get_task_stats();
+			let (total, pending, in_progress, _completed) = app.get_task_stats();
 			let failed = app.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
 			let success = app.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
 
 			match &app.task_state {
 				BuilState::Idle => {
-					(0.0, Style::default().fg(Color::DarkGray), format!(" Waiting to start {} task{} ", total, if total != 1 { "s" } else { "" }), false)
+					if pending > 0 {
+						(0.0, Style::default().fg(Color::Yellow), format!(" Preparing {} task{} ", total, if total != 1 { "s" } else { "" }), false)
+					} else {
+						(0.0, Style::default().fg(Color::DarkGray), format!(" Waiting to start {} task{} ", total, if total != 1 { "s" } else { "" }), false)
+					}
 				},
 
 				BuilState::Running { progress, .. } => {
@@ -145,8 +149,8 @@ impl Terminal {
 					};
 
 					let percent = (progress * 100.0).round();
-
-					let label = format!(" {:.0}% | {}/{} completed, {}/{} in progress, {} failed ", percent, success, total, in_progress, total, failed);
+					let label =
+						format!(" {:.0}% | {}/{} completed, {}/{} in progress, {} pending, {} failed ", percent, success, total, in_progress, total, pending, failed);
 
 					(*progress, style, label, true)
 				},
