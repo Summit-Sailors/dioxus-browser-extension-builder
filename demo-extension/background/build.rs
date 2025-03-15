@@ -1,12 +1,10 @@
-#[dotenvy::load(path = "../../.env")]
 fn main() {
-	if std::env::var("ENV").unwrap() == "local" {
-		println!("cargo:rustc-env=RUST_BACKTRACE=1");
-		println!("cargo:rustc-env=CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG=true");
-		println!("cargo:rerun-if-changed=../.env");
-	}
+	println!("cargo:rustc-env=RUST_BACKTRACE=1");
+	println!("cargo:rustc-env=CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG=true");
 
-	for key in ["SERVER_URL", "ENV"] {
-		println!("cargo:rustc-env={}={}", key, std::env::var(key).unwrap_or_else(|_| panic!("expected {key} env var")));
-	}
+	let server_url = std::env::var("SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:8071".to_string());
+	let env = std::env::var("ENV").unwrap_or_else(|_| "Local".to_string());
+
+	println!("cargo:rustc-env=SERVER_URL={}", server_url);
+	println!("cargo:rustc-env=ENV={}", env);
 }

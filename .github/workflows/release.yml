@@ -6,7 +6,10 @@ on:
       - "v*.*.*"
 
 env:
-  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: true
+  ENV: Production
+  SERVER_URL: http://127.0.0.1:8071
 
 jobs:
   create-release:

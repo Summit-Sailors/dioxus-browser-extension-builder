@@ -223,7 +223,7 @@ impl ExtensionCrate {
 						}
 					}
 					// avoid flooding with progress updates
-					sleep(Duration::from_millis(5)).await;
+					sleep(Duration::from_millis(50)).await;
 				}
 			});
 			let status = match child.wait().await {
