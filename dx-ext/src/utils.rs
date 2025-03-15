@@ -27,12 +27,12 @@ pub(crate) fn read_config() -> Result<ExtConfig> {
 	})
 }
 
-pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<()> {
+pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<bool> {
 	info!("Welcome to the Dioxus Browser Extension Builder Setup");
 
 	if Path::new("dx-ext.toml").exists() && !options.force {
 		info!("Config file already exists. Use --force to overwrite.");
-		return Ok(());
+		return Ok(false);
 	}
 
 	let extension_dir = if options.interactive {
@@ -93,7 +93,7 @@ enable-incremental-builds = {}
 	info!("  Assets directory: {assets_dir}");
 	info!("  Enable incremental builds: {}", enable_incremental_builds);
 
-	Ok(())
+	Ok(true)
 }
 
 // Clean the distribution directory

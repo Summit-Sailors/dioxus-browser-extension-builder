@@ -178,8 +178,10 @@ async fn main() -> Result<()> {
 			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).finish();
 			let _ = tracing::subscriber::set_global_default(subscriber);
 
-			create_default_config_toml(&options)?;
-			println!("Created dx-ext.toml configuration file");
+			let created = create_default_config_toml(&options)?;
+			if created {
+				info!("Created dx-ext.toml configuration file");
+			}
 			return Ok(());
 		},
 		_ => {
@@ -378,9 +380,6 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 		}
 	}
 
-	// a small delay to ensure watcher is ready
-	sleep(Duration::from_millis(200)).await;
-
 	// watch task
 	let config_clone = config.clone();
 	let watch_task = tokio::spawn(async move {
@@ -417,7 +416,7 @@ async fn run_ui_loop(
 				// UI updates handler
 				{
 					let mut app = app.lock().await;
-					app.update(EXMessage::Tick);
+					app.update(EXMessage::Tick).await;
 				}
 				// UI draw
 				{
@@ -438,61 +437,13 @@ async fn run_ui_loop(
 							if key.code == KeyCode::Char('r') {
 								{
 									let mut app_guard = app.lock().await;
-									let _ = app_guard.update(EXMessage::Keypress(key.code));
-									let mut terminal_guard = terminal.lock().await;
-									if let Err(e) = terminal_guard.draw(&mut app_guard) {
-										error!("Failed to draw UI: {}", e);
-									}
+									app_guard.update(EXMessage::Keypress(key.code)).await;
 								}
-
-								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Cleaning dist directory...".to_string())).await;
-								if let Err(e) = clean_dist_directory(&read_config()?).await {
-									error!("Failed to clean dist directory: {}", e);
-								}
-
-								{
-									let mut app_guard = app.lock().await;
-									let mut terminal_guard = terminal.lock().await;
-									if let Err(e) = terminal_guard.draw(&mut app_guard) {
-										error!("Failed to draw UI: {}", e);
-									}
-								}
-
-								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Reinitializing build tasks...".to_string())).await;
-								for e_crate in ExtensionCrate::iter() {
-									PENDING_BUILDS.lock().await.insert(e_crate);
-									update_task_status(&e_crate.get_task_name(), BuildStatus::Pending).await;
-
-									{
-										let mut app_guard = app.lock().await;
-										let mut terminal_guard = terminal.lock().await;
-										if let Err(e) = terminal_guard.draw(&mut app_guard) {
-											error!("Failed to draw UI: {}", e);
-										}
-									}
-								}
-
-								for e_file in EFile::iter() {
-									PENDING_COPIES.lock().await.insert(e_file);
-								}
-
-								send_ui_message(EXMessage::LogMessage(LogLevel::Info, "Starting rebuild process...".to_string())).await;
-
-								{
-									let mut app_guard = app.lock().await;
-									app_guard.update(EXMessage::BuildProgress(0.0));
-									let mut terminal_guard = terminal.lock().await;
-									if let Err(e) = terminal_guard.draw(&mut app_guard) {
-											error!("Failed to draw UI: {}", e);
-									}
-							}
-								process_pending_events(&read_config()?, app.clone(), terminal.clone()).await;
 						}
-
-							if key.code == KeyCode::Char('q') ||
-								(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
-								let mut app_guard = app.lock().await;
-								app_guard.update(EXMessage::Exit);
+						if key.code == KeyCode::Char('q') ||
+							(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
+							let mut app_guard = app.lock().await;
+							app_guard.update(EXMessage::Exit).await;
 							}
 						}
 					}
@@ -500,7 +451,7 @@ async fn run_ui_loop(
 			}
 			Some(ui_msg) = ui_rx.recv() => {
 				let mut app_guard = app.lock().await;
-				app_guard.update(ui_msg);
+				app_guard.update(ui_msg).await;
 				let mut terminal_guard = terminal.lock().await;
 				if let Err(e) = terminal_guard.draw(&mut app_guard) {
 						error!("Failed to draw UI: {}", e);

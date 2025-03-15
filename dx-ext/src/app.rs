@@ -1,6 +1,6 @@
 use {
 	crate::{
-		ExtensionCrate, LogLevel,
+		EFile, ExtensionCrate, LogLevel, PENDING_BUILDS, PENDING_COPIES,
 		common::{BuilState, BuildStatus, EXMessage, TaskState},
 	},
 	crossterm::event::KeyCode,
@@ -200,14 +200,14 @@ impl App {
 
 		result
 	}
-	pub(crate) fn update(&mut self, message: EXMessage) {
+	pub(crate) async fn update(&mut self, message: EXMessage) {
 		match message {
 			EXMessage::Keypress(key) => match key {
 				KeyCode::Char('q') => {
 					self.should_quit = true;
 				},
 				KeyCode::Char('r') => {
-					self.reset();
+					self.reset().await;
 				},
 				_ => {},
 			},
@@ -272,7 +272,7 @@ impl App {
 		}
 	}
 
-	pub(crate) fn reset(&mut self) {
+	pub(crate) async fn reset(&mut self) {
 		self.log_buffer.clear();
 		self.add_log(LogLevel::Info, "Resetting application state...");
 
@@ -284,8 +284,13 @@ impl App {
 
 		self.add_log(LogLevel::Info, "Initializing tasks...");
 		for e_crate in ExtensionCrate::iter() {
+			PENDING_BUILDS.lock().await.insert(e_crate);
 			self.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
 			self.task_history.insert(e_crate.get_task_name(), TaskState::default());
+		}
+
+		for e_file in EFile::iter() {
+			PENDING_COPIES.lock().await.insert(e_file);
 		}
 
 		self.add_log(LogLevel::Info, "Reset complete, awaiting rebuild...");
