@@ -14,7 +14,7 @@ sort-d:
   set -euo pipefail
   cargo sort-derives
 
-pack:
+ext-bundle:
   #!/usr/bin/env bash
   set -euo pipefail
   [ -d "demo-extension/dist" ] && rm -rf demo-extension/dist
@@ -39,8 +39,9 @@ pack:
   cp ./index.html ./dist/index.html
   cp ./index.js ./dist/index.js
 
-pack-ext:
+ext-watch:
   #!/usr/bin/env bash
   set -euo pipefail
-  just pack
+  just ext-bundle
   cargo run -p dx-ext watch
+  

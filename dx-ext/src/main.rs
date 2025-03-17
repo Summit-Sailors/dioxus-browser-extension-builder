@@ -175,7 +175,7 @@ async fn main() -> Result<()> {
 
 	match cli.command {
 		Commands::Init(options) => {
-			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).finish();
+			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).finish();
 			let _ = tracing::subscriber::set_global_default(subscriber);
 
 			let created = create_default_config_toml(&options)?;
@@ -442,8 +442,8 @@ async fn run_ui_loop(
 						}
 						if key.code == KeyCode::Char('q') ||
 							(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
-							let mut app_guard = app.lock().await;
-							app_guard.update(EXMessage::Exit).await;
+								let mut app_guard = app.lock().await;
+								app_guard.update(EXMessage::Exit).await;
 							}
 						}
 					}
@@ -454,7 +454,7 @@ async fn run_ui_loop(
 				app_guard.update(ui_msg).await;
 				let mut terminal_guard = terminal.lock().await;
 				if let Err(e) = terminal_guard.draw(&mut app_guard) {
-						error!("Failed to draw UI: {}", e);
+					error!("Failed to draw UI: {}", e);
 				}
 			}
 		}
@@ -575,38 +575,27 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, termin
 
 					let _ = tokio::spawn(async move {
 						send_ui_message(EXMessage::TaskProgress(progress_task_name, progress)).await;
-
-						{
-							let mut app_guard = inner_app.lock().await;
-							let mut terminal_guard = inner_terminal.lock().await;
-							if let Err(e) = terminal_guard.draw(&mut app_guard) {
-								error!("Failed to draw UI: {}", e);
-							}
-						}
+						redraw_ui(&inner_app, &inner_terminal).await;
 					});
 				})
 				.await;
 
 			let status = match &result {
 				Some(Ok(_)) => {
+					info!("Build successful");
 					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
 					BuildStatus::Success
 				},
 				Some(Err(_)) | None => {
+					info!("Build failed");
 					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
 					BuildStatus::Failed
 				},
 			};
 
+			info!("{} completed with status: {:?}", task_name, status);
 			update_task_status(&task_name, status).await;
-
-			{
-				let mut app_guard = app_clone.lock().await;
-				let mut terminal_guard = terminal_clone.lock().await;
-				if let Err(e) = terminal_guard.draw(&mut app_guard) {
-					error!("Failed to draw UI: {}", e);
-				}
-			}
+			redraw_ui(&app_clone, &terminal_clone).await;
 
 			match result {
 				Some(r) => r,

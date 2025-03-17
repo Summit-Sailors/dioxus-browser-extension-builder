@@ -276,8 +276,11 @@ impl ExtensionCrate {
 					continue;
 				} else {
 					if !error_output.is_empty() {
-						error!("[FAIL] wasm-pack build for {} failed with errors:\n{}", crate_name, error_output);
-						return Some(Err(anyhow::anyhow!("Build failed for {}: {}", crate_name, error_output)));
+						error!("[FAIL] wasm-pack build for {} failed with errors:", crate_name);
+						for line in error_output.lines() {
+							error!("{}", line);
+						}
+						return Some(Err(anyhow::anyhow!("Build failed for {}", crate_name)));
 					}
 					error!("[FAIL] wasm-pack build for {} failed with status: {}", crate_name, status);
 					return Some(Err(anyhow::anyhow!("Build failed for {}", crate_name)));
