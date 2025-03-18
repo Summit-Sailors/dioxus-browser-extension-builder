@@ -85,6 +85,7 @@ mod common;
 mod efile;
 mod extcrate;
 mod logging;
+mod manganis;
 mod terminal;
 mod utils;
 
@@ -156,7 +157,7 @@ enum Commands {
 	/// Build all crates and copy files without watching
 	#[clap(name = "build")]
 	Build(BuildOptions),
-	/// Create a configuration file with customizable options
+	/// Create a configuration file with customizable option
 	#[clap(name = "init")]
 	Init(InitOptions),
 }

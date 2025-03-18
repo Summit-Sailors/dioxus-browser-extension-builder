@@ -1,5 +1,8 @@
 use {
-	crate::common::{BuildMode, ExtConfig},
+	crate::{
+		common::{BuildMode, ExtConfig},
+		manganis::ManganisBuildManager,
+	},
 	anyhow::Result,
 	std::{
 		fs,
@@ -21,7 +24,7 @@ pub(crate) enum ExtensionCrate {
 
 impl ExtensionCrate {
 	// the actual crate name based on config
-	pub(crate) fn get_crate_name(&self, config: &ExtConfig) -> String {
+	pub fn get_crate_name(&self, config: &ExtConfig) -> String {
 		match self {
 			Self::Popup => config.popup_name.clone(),
 			Self::Background => "background".to_owned(),
@@ -29,7 +32,7 @@ impl ExtensionCrate {
 		}
 	}
 
-	pub(crate) fn get_task_name(&self) -> String {
+	pub fn get_task_name(&self) -> String {
 		match self {
 			Self::Popup => "Building Popup".to_string(),
 			Self::Background => "Building Background".to_string(),
@@ -65,13 +68,13 @@ impl ExtensionCrate {
 		}
 
 		// if specific crate output exists, check if it's older than the newest source
-		let mut oldest_target = SystemTime::now();
+		let oldest_target = SystemTime::now();
 
 		for output_path in [&crate_output_js, &crate_output_wasm] {
 			if let Ok(metadata) = fs::metadata(output_path) {
 				if let Ok(modified) = metadata.modified() {
-					if modified < oldest_target {
-						oldest_target = modified;
+					if modified > newest_source {
+						return Ok(true);
 					}
 				}
 			}
@@ -85,6 +88,19 @@ impl ExtensionCrate {
 	where
 		F: Fn(f64) + Clone + Send + 'static,
 	{
+		// check if asset processing using manganis is enabled and do the configuration
+		let mut manganis_manager = None;
+		if config.enable_manganis_asset_processing {
+			info!("Manganis Enabled. Configuring...");
+			let mut manager = ManganisBuildManager::new(config.clone());
+			if let Err(e) = manager.configure() {
+				error!("Failed to configure Manganis: {}", e);
+				return Some(Err(anyhow::anyhow!("Manganis configuration failed: {}", e)));
+			}
+			manganis_manager = Some(manager);
+			info!("Manganis configuration successful");
+		}
+
 		let extension_dir = &config.extension_directory_name;
 		let crate_name = self.get_crate_name(config);
 		let progress_callback_clone = progress_callback.clone();
@@ -149,7 +165,12 @@ impl ExtensionCrate {
 			// stdout/stderr capture
 			cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 			let mut child = match cmd.spawn() {
-				Ok(child) => child,
+				Ok(child) => {
+					if let Some(ref mut manager) = manganis_manager {
+						let _ = manager.process_assets();
+					}
+					child
+				},
 				Err(e) => {
 					error!("Failed to start wasm-pack: {}", e);
 					if e.kind() == std::io::ErrorKind::NotFound {

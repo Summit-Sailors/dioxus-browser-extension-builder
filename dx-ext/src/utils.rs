@@ -24,6 +24,8 @@ pub(crate) fn read_config() -> Result<ExtConfig> {
 		assets_dir: parsed_toml.extension_config.assets_directory,
 		build_mode: BuildMode::Development,
 		enable_incremental_builds: parsed_toml.extension_config.enable_incremental_builds,
+		enable_manganis_asset_processing: parsed_toml.extension_config.enable_manganis_asset_processing,
+		assets_include_tailwind: parsed_toml.extension_config.assets_include_tailwind,
 	})
 }
 
@@ -65,6 +67,18 @@ pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<bool> 
 		options.enable_incremental_builds
 	};
 
+	let enable_manganis_asset_processing = if options.interactive {
+		Confirm::new().with_prompt("Enable manganis asset processing?").default(options.enable_manganis_asset_processing).interact()?
+	} else {
+		options.enable_manganis_asset_processing
+	};
+
+	let assets_include_tailwind = if options.enable_manganis_asset_processing && options.interactive {
+		Confirm::new().with_prompt("Treat tailwind as assets?").default(options.assets_include_tailwind).interact()?
+	} else {
+		options.assets_include_tailwind
+	};
+
 	let assets_dir = if options.interactive {
 		Input::new().with_prompt("Enter assets directory").default(options.assets_dir.clone()).interact_text()?
 	} else {
@@ -73,14 +87,23 @@ pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<bool> 
 
 	let config_content = format!(
 		r#"[extension-config]
-assets-directory = "{assets_dir}"
-background-script-index-name = "{background_script}"
-content-script-index-name = "{content_script}"
-extension-directory-name = "{extension_dir}"
-popup-name = "{popup_name}"
+assets-directory = "{}"
+background-script-index-name = "{}"
+content-script-index-name = "{}"
+extension-directory-name = "{}"
+popup-name = "{}"
 enable-incremental-builds = {}
+enable-manganis-asset-processing = {}
+assets-include-tailwind = {}
 "#,
-		enable_incremental_builds
+		assets_dir,
+		background_script,
+		content_script,
+		extension_dir,
+		popup_name,
+		enable_incremental_builds,
+		enable_manganis_asset_processing,
+		assets_include_tailwind
 	);
 
 	fs::write("dx-ext.toml", config_content).context("Failed to write dx-ext.toml file")?;
@@ -92,6 +115,8 @@ enable-incremental-builds = {}
 	info!("  Content script: {content_script}");
 	info!("  Assets directory: {assets_dir}");
 	info!("  Enable incremental builds: {}", enable_incremental_builds);
+	info!("  Enable manganis asset processing: {}", enable_manganis_asset_processing);
+	info!("  Include tailwind as assets: {}", assets_include_tailwind);
 
 	Ok(true)
 }
@@ -112,7 +137,7 @@ pub(crate) async fn clean_dist_directory(config: &ExtConfig) -> Result<()> {
 }
 
 // show build status after build
-pub async fn show_final_build_report(app: Arc<Mutex<App>>) {
+pub(crate) async fn show_final_build_report(app: Arc<Mutex<App>>) {
 	let app_guard = app.lock().await;
 	let (total, _, _, _) = app_guard.get_task_stats();
 	let failed = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();

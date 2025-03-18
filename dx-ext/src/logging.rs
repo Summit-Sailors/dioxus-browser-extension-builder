@@ -22,7 +22,7 @@ pub(crate) struct TUILogLayer {
 }
 
 impl TUILogLayer {
-	pub(crate) fn new(callback: LogCallback) -> Self {
+	pub fn new(callback: LogCallback) -> Self {
 		Self { callback }
 	}
 }
