@@ -1,4 +1,3 @@
-#[allow(dead_code)]
 use {
 	crate::{LogLevel, efile::EFile, extcrate::ExtensionCrate},
 	clap::{ArgAction, Args, ValueHint},
@@ -20,6 +19,7 @@ pub(crate) static FILE_TIMESTAMPS: LazyLock<Mutex<HashMap<PathBuf, SystemTime>>>
 
 // task progress tracking
 #[derive(PartialEq)]
+#[allow(dead_code)]
 pub enum TaskProgress {
 	NotStarted,
 	InProgress(f64),
@@ -64,6 +64,7 @@ pub enum BuilState {
 	Failed { duration: Duration },
 }
 
+#[allow(dead_code)]
 pub(crate) enum EXMessage {
 	Keypress(KeyCode),
 	Tick,
