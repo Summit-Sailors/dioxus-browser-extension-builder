@@ -20,11 +20,11 @@ use {
 };
 
 pub(crate) struct Terminal {
-	pub(crate) terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+	pub terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
 }
 
 impl Terminal {
-	pub(crate) fn new() -> io::Result<Self> {
+	pub fn new() -> io::Result<Self> {
 		enable_raw_mode()?;
 		let mut stdout = stdout();
 		let _ = stdout.execute(Hide);
@@ -36,7 +36,7 @@ impl Terminal {
 		Ok(Self { terminal })
 	}
 
-	pub(crate) fn draw(&mut self, app: &mut App) -> io::Result<()> {
+	pub fn draw(&mut self, app: &mut App) -> io::Result<()> {
 		self.terminal.draw(|frame| {
 			let area = frame.area();
 

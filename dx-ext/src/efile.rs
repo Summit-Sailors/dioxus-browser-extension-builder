@@ -69,7 +69,7 @@ impl EFile {
 	}
 
 	// hash checking to avoid unnecessary copies
-	async fn copy_file(src: &Path, dest: &Path) -> Result<bool> {
+	pub async fn copy_file(src: &Path, dest: &Path) -> Result<bool> {
 		if !src.exists() {
 			return Err(anyhow::anyhow!("Source file does not exist: {:?}", src));
 		}
@@ -197,7 +197,13 @@ impl EFile {
 		Ok(any_copied)
 	}
 
-	pub(crate) async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
+	pub async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
+		// skip standard asset processing if Manganis is enabled for Assets
+		if self == Self::Assets && config.enable_manganis_asset_processing {
+			info!("Assets already handled by manganis...");
+			return Ok(());
+		}
+
 		info!("Copying {:?}...", self);
 		let src = self.get_copy_src(config);
 		let dest = self.get_copy_dest(config);
@@ -220,8 +226,7 @@ impl EFile {
 		}
 	}
 
-	// the file path string for file watching
-	pub(crate) fn get_watch_path(&self, config: &ExtConfig) -> String {
+	pub fn get_watch_path(&self, config: &ExtConfig) -> String {
 		match self {
 			Self::Manifest => "manifest.json".to_owned(),
 			Self::IndexHtml => "index.html".to_owned(),
