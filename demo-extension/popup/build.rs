@@ -11,11 +11,10 @@ fn main() {
 	println!("cargo:rustc-env=ENV={}", env);
 
 	println!("cargo:rerun-if-changed=./input.css");
-	println!("cargo:rerun-if-changed=./tailwind.config.js");
 
 	let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
 	let mut cmd = Command::new("npx");
-	let mut args = vec!["tailwindcss", "-i", "./input.css", "-o", "./assets/tailwind.css"];
+	let mut args = vec!["@tailwindcss/cli", "-i", "./input.css", "-o", "./assets/tailwind.css"];
 
 	if profile == "release" {
 		args.push("--minify");

@@ -112,7 +112,7 @@ pub(crate) async fn clean_dist_directory(config: &ExtConfig) -> Result<()> {
 }
 
 // show build status after build
-pub async fn show_final_build_report(app: Arc<Mutex<App>>) {
+pub(crate) async fn show_final_build_report(app: Arc<Mutex<App>>) {
 	let app_guard = app.lock().await;
 	let (total, _, _, _) = app_guard.get_task_stats();
 	let failed = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();

@@ -14,17 +14,17 @@ use {
 		style::{Color, Modifier, Style},
 		symbols,
 		text::{Line, Span},
-		widgets::{Block, BorderType, Borders, LineGauge, List, ListItem, Paragraph},
+		widgets::{Block, BorderType, Borders, LineGauge, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 	},
 	std::io::{self, stdout},
 };
 
 pub(crate) struct Terminal {
-	pub(crate) terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+	pub terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
 }
 
 impl Terminal {
-	pub(crate) fn new() -> io::Result<Self> {
+	pub fn new() -> io::Result<Self> {
 		enable_raw_mode()?;
 		let mut stdout = stdout();
 		let _ = stdout.execute(Hide);
@@ -36,7 +36,7 @@ impl Terminal {
 		Ok(Self { terminal })
 	}
 
-	pub(crate) fn draw(&mut self, app: &mut App) -> io::Result<()> {
+	pub fn draw(&mut self, app: &mut App) -> io::Result<()> {
 		self.terminal.draw(|frame| {
 			let area = frame.area();
 
@@ -77,7 +77,7 @@ impl Terminal {
 			Self::render_logs(frame, chunks[3], app);
 
 			// render instructions
-			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q'/'Ctrl+C' to quit").centered().style(Style::default().fg(Color::Gray)), chunks[4]);
+			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").centered().style(Style::default().fg(Color::Gray)), chunks[4]);
 		})?;
 
 		Ok(())
@@ -94,15 +94,32 @@ impl Terminal {
 		frame.render_widget(logs_block, area);
 
 		let max_logs = inner_area.height as usize;
-		if app.log_buffer.len() > max_logs {
-			app.log_buffer.drain(0..(app.log_buffer.len() - max_logs));
+
+		// ensure scroll offset stays within bounds
+		if app.scroll_offset > app.log_buffer.len().saturating_sub(max_logs) {
+			app.scroll_offset = app.log_buffer.len().saturating_sub(max_logs);
 		}
 
-		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().cloned().map(ListItem::new).collect();
+		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().skip(app.scroll_offset).take(max_logs).cloned().map(ListItem::new).collect();
 
 		let logs_list = List::new(log_items).block(Block::default()).style(Style::default());
 
 		frame.render_widget(logs_list, inner_area);
+
+		// Scrollbar state
+		let content_length = if app.log_buffer.len() > max_logs {
+			app.log_buffer.len()
+		} else {
+			max_logs // max_logs when log buffer is smaller
+		};
+
+		let mut scrollbar_state = ScrollbarState::default().position(app.scroll_offset).content_length(content_length);
+
+		frame.render_stateful_widget(
+			Scrollbar::new(ScrollbarOrientation::VerticalRight).begin_symbol(Some("↑")).end_symbol(Some("↓")),
+			inner_area,
+			&mut scrollbar_state,
+		);
 	}
 
 	fn render_task_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) {

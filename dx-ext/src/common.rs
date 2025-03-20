@@ -71,7 +71,6 @@ pub(crate) enum EXMessage {
 	BuildProgress(f64),
 	BuildComplete,
 	BuildFailed,
-	Exit,
 	UpdateTask(String, BuildStatus),
 	LogMessage(LogLevel, String),
 	TaskProgress(String, f64),
@@ -106,41 +105,41 @@ impl std::str::FromStr for BuildMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ExtConfig {
-	pub(crate) background_script_index_name: String,
-	pub(crate) content_script_index_name: String,
-	pub(crate) extension_directory_name: String,
-	pub(crate) popup_name: String,
-	pub(crate) assets_dir: String,
-	pub(crate) build_mode: BuildMode,
-	pub(crate) enable_incremental_builds: bool,
+	pub background_script_index_name: String,
+	pub content_script_index_name: String,
+	pub extension_directory_name: String,
+	pub popup_name: String,
+	pub assets_dir: String,
+	pub build_mode: BuildMode,
+	pub enable_incremental_builds: bool,
 }
 
 // config struct that matches the TOML structure
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct TomlConfig {
 	#[serde(rename = "extension-config")]
-	pub(crate) extension_config: ExtConfigToml,
+	pub extension_config: ExtConfigToml,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ExtConfigToml {
 	#[serde(rename = "assets-directory")]
-	pub(crate) assets_directory: String,
+	pub assets_directory: String,
 
 	#[serde(rename = "background-script-index-name")]
-	pub(crate) background_script_index_name: String,
+	pub background_script_index_name: String,
 
 	#[serde(rename = "content-script-index-name")]
-	pub(crate) content_script_index_name: String,
+	pub content_script_index_name: String,
 
 	#[serde(rename = "extension-directory-name")]
-	pub(crate) extension_directory_name: String,
+	pub extension_directory_name: String,
 
 	#[serde(rename = "popup-name")]
-	pub(crate) popup_name: String,
+	pub popup_name: String,
 
 	#[serde(rename = "enable-incremental-builds")]
-	pub(crate) enable_incremental_builds: bool,
+	pub enable_incremental_builds: bool,
 }
 
 // Configuration options for the Init command
@@ -148,33 +147,33 @@ pub(crate) struct ExtConfigToml {
 pub(crate) struct InitOptions {
 	/// Extension directory name
 	#[arg(long, help = "Name of your extension directory", default_value = "extension", value_hint = ValueHint::DirPath)]
-	pub(crate) extension_dir: String,
+	pub extension_dir: String,
 
 	/// Popup crate name
 	#[arg(long, help = "Name of your popup crate", default_value = "popup")]
-	pub(crate) popup_name: String,
+	pub popup_name: String,
 
 	/// Background script entry point
 	#[arg(long, help = "Name of your background script entry point", default_value = "background_index.js")]
-	pub(crate) background_script: String,
+	pub background_script: String,
 
 	/// Content script entry point
 	#[arg(long, help = "Name of your content script entry point", default_value = "content_index.js")]
-	pub(crate) content_script: String,
+	pub content_script: String,
 
 	/// Assets directory
 	#[arg(long, help = "Your assets directory relative to the extension directory", default_value = "popup/assets", value_hint = ValueHint::DirPath)]
-	pub(crate) assets_dir: String,
+	pub assets_dir: String,
 
 	/// Force overwrite existing config file
 	#[arg(short, long, help = "Force overwrite of existing config file", action = ArgAction::SetTrue)]
-	pub(crate) force: bool,
+	pub force: bool,
 
 	/// Interactive mode to collect configuration
 	#[arg(short, long, help = "Interactive mode to collect configuration", action = ArgAction::SetTrue)]
-	pub(crate) interactive: bool,
+	pub interactive: bool,
 
 	/// Enable incremental build
 	#[arg(short, long, help = "Enable incremental builds for watch command", action = ArgAction::SetTrue)]
-	pub(crate) enable_incremental_builds: bool,
+	pub enable_incremental_builds: bool,
 }

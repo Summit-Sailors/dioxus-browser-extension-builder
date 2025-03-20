@@ -1,6 +1,7 @@
 {
   "type": "module",
   "dependencies": {
-    "tailwindcss": "3.4.17"
+    "@tailwindcss/cli": "^4.0.14",
+    "tailwindcss": "4.0.14"
   }
 }

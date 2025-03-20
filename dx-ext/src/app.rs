@@ -17,14 +17,15 @@ use {
 
 #[derive(Debug, Clone)]
 pub(crate) struct App {
-	pub(crate) task_state: BuilState,
-	pub(crate) should_quit: bool,
-	pub(crate) throbber_state: throbber_widgets_tui::ThrobberState,
-	pub(crate) tasks: HashMap<String, BuildStatus>,
-	pub(crate) task_history: HashMap<String, TaskState>,
-	pub(crate) log_buffer: Vec<Line<'static>>,
-	pub(crate) max_logs: usize,
-	pub(crate) overall_start_time: Option<Instant>,
+	pub task_state: BuilState,
+	pub should_quit: bool,
+	pub throbber_state: throbber_widgets_tui::ThrobberState,
+	pub tasks: HashMap<String, BuildStatus>,
+	pub task_history: HashMap<String, TaskState>,
+	pub log_buffer: Vec<Line<'static>>,
+	pub scroll_offset: usize,
+	pub max_logs: usize,
+	pub overall_start_time: Option<Instant>,
 }
 
 impl App {
@@ -36,6 +37,7 @@ impl App {
 			tasks: HashMap::new(),
 			task_history: HashMap::new(),
 			log_buffer: Vec::new(),
+			scroll_offset: 0,
 			max_logs: 100,
 			overall_start_time: None,
 		}
@@ -200,7 +202,7 @@ impl App {
 
 		result
 	}
-	pub(crate) async fn update(&mut self, message: EXMessage) {
+	pub async fn update(&mut self, message: EXMessage) {
 		match message {
 			EXMessage::Keypress(key) => match key {
 				KeyCode::Char('q') => {
@@ -208,6 +210,16 @@ impl App {
 				},
 				KeyCode::Char('r') => {
 					self.reset().await;
+				},
+				KeyCode::Up => {
+					if self.scroll_offset > 0 {
+						self.scroll_offset -= 1;
+					}
+				},
+				KeyCode::Down => {
+					if self.scroll_offset < self.max_logs {
+						self.scroll_offset += 1;
+					}
 				},
 				_ => {},
 			},
@@ -232,9 +244,6 @@ impl App {
 				} else {
 					self.task_state = BuilState::Failed { duration: Duration::from_secs(0) };
 				}
-			},
-			EXMessage::Exit => {
-				self.should_quit = true;
 			},
 			EXMessage::UpdateTask(task_name, status) => {
 				self.update_task(task_name, status);

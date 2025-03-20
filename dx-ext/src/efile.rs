@@ -197,7 +197,7 @@ impl EFile {
 		Ok(any_copied)
 	}
 
-	pub(crate) async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
+	pub async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
 		info!("Copying {:?}...", self);
 		let src = self.get_copy_src(config);
 		let dest = self.get_copy_dest(config);
@@ -221,7 +221,7 @@ impl EFile {
 	}
 
 	// the file path string for file watching
-	pub(crate) fn get_watch_path(&self, config: &ExtConfig) -> String {
+	pub fn get_watch_path(&self, config: &ExtConfig) -> String {
 		match self {
 			Self::Manifest => "manifest.json".to_owned(),
 			Self::IndexHtml => "index.html".to_owned(),

@@ -96,7 +96,7 @@ use {
 	crossterm::{
 		ExecutableCommand,
 		cursor::Show,
-		event::{self, KeyCode, KeyEventKind, KeyModifiers},
+		event::{self, KeyCode, KeyEventKind},
 		terminal::disable_raw_mode,
 	},
 	efile::EFile,
@@ -433,17 +433,10 @@ async fn run_ui_loop(
 				// checking for key events
 				if crossterm::event::poll(Duration::from_millis(0))? {
 					if let crossterm::event::Event::Key(key) = event::read()? {
-						if key.kind == KeyEventKind::Press {
-							if key.code == KeyCode::Char('r') {
-								{
-									let mut app_guard = app.lock().await;
-									app_guard.update(EXMessage::Keypress(key.code)).await;
-								}
-						}
-						if key.code == KeyCode::Char('q') ||
-							(key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
+						if key.kind == KeyEventKind::Press && (key.code == KeyCode::Char('r') || (key.code == KeyCode::Up || key.code == KeyCode::Down ) || key.code == KeyCode::Char('q')) {
+							{
 								let mut app_guard = app.lock().await;
-								app_guard.update(EXMessage::Exit).await;
+								app_guard.update(EXMessage::Keypress(key.code)).await;
 							}
 						}
 					}
