@@ -172,13 +172,17 @@ impl ExtensionCrate {
 					let reader = BufReader::new(stderr);
 					let mut lines = reader.lines();
 
+					let re = regex::Regex::new(r"\[INFO\]|\[ERROR\]|\[WARN\]").unwrap();
+
 					while let Ok(Some(line)) = lines.next_line().await {
+						let clean_line = re.replace_all(&line, "").trim().to_string();
+
 						if line.contains("[INFO]") {
-							info!("{}", line);
+							info!("{}", clean_line);
 						} else if line.contains("[ERROR]") {
-							error!("{}", line);
+							error!("{}", clean_line);
 						} else if line.contains("[WARN]") {
-							warn!("{}", line);
+							warn!("{}", clean_line);
 						} else {
 							debug!("{}", line);
 						}

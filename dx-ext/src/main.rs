@@ -104,7 +104,6 @@ use {
 	futures::future::{join_all, try_join_all},
 	lazy_static::lazy_static,
 	logging::{LogCallback, LogLevel, TUILogLayer},
-	lowdash::find_uniques,
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
 	std::{io::stdout, path::Path, sync::Arc, time::Duration},
 	strum::IntoEnumIterator,
@@ -295,7 +294,6 @@ async fn update_task_status(task_name: &str, status: BuildStatus) {
 
 async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>, ui_rx: mpsc::UnboundedReceiver<EXMessage>) -> Result<()> {
 	let app_clone = app.clone();
-	let terminal_clone = terminal.clone();
 
 	for e_crate in ExtensionCrate::iter() {
 		app.lock().await.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
@@ -383,7 +381,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 	// watch task
 	let config_clone = config.clone();
 	let watch_task = tokio::spawn(async move {
-		watch_loop(rx, watch_cancel_token, config_clone, app_clone, terminal_clone).await;
+		watch_loop(rx, watch_cancel_token, config_clone, app_clone).await;
 	});
 
 	tokio::select! {
@@ -455,18 +453,19 @@ async fn run_ui_loop(
 	Ok(())
 }
 
-async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationToken, config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>) {
+async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationToken, config: ExtConfig, app: Arc<Mutex<App>>) {
 	let mut pending_events = tokio::time::interval(Duration::from_secs(1));
 
 	loop {
 		tokio::select! {
 			_ = cancel_token.cancelled() => break,
 			Some(event) = rx.recv() => {
+				let _ = app.lock().await.overall_start_time = None;
 				handle_event(&event, &config).await;
 				pending_events.reset();
 			}
 			_ = pending_events.tick() => {
-				process_pending_events(&config, app.clone(), terminal.clone()).await;
+				process_pending_events(&config, app.clone()).await;
 			}
 		}
 	}
@@ -481,52 +480,38 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 		return;
 	}
 
-	let copy_futures = find_uniques(
-		&event
+	let mut pending_copies = PENDING_COPIES.lock().await;
+	let copy_futures = event
+		.paths
+		.iter()
+		.flat_map(|path| {
+			let path_str = path.to_str().unwrap_or_default();
+			EFile::iter().filter_map(|e_file| path_str.contains(&e_file.get_watch_path(config)).then_some(e_file))
+		})
+		.collect::<Vec<_>>();
+	pending_copies.extend(copy_futures);
+
+	let builds = if event.paths.iter().any(|path| path.to_str().unwrap_or_default().contains("api")) {
+		ExtensionCrate::iter().collect::<Vec<_>>()
+	} else {
+		event
 			.paths
 			.iter()
 			.flat_map(|path| {
 				let path_str = path.to_str().unwrap_or_default();
-				EFile::iter().filter(|e_file| path_str.contains(&e_file.get_watch_path(config))).collect::<Vec<EFile>>()
+				ExtensionCrate::iter().filter_map(|e_crate| path_str.contains(&e_crate.get_crate_name(config)).then_some(e_crate))
 			})
-			.collect::<Vec<EFile>>(),
-	)
-	.into_iter()
-	.map(|e_file| async move { PENDING_COPIES.lock().await.insert(e_file) });
+			.collect::<Vec<_>>()
+	};
 
-	// shared API changes
-	if event.paths.iter().any(|path| path.to_str().unwrap_or_default().contains("api")) {
-		let builds = ExtensionCrate::iter().collect::<Vec<_>>();
-
-		// update UI for each build crate
-		for crate_type in &builds {
-			update_task_status(&crate_type.get_task_name(), BuildStatus::Pending).await;
-		}
-
-		tokio::join!(join_all(builds.iter().map(|crate_type| async move { PENDING_BUILDS.lock().await.insert(*crate_type) })), join_all(copy_futures));
-	} else {
-		// crate-specific changes
-		let builds = find_uniques(
-			&event
-				.paths
-				.iter()
-				.flat_map(|path| {
-					let path_str = path.to_str().unwrap_or_default();
-					ExtensionCrate::iter().filter(|e_crate| path_str.contains(&e_crate.get_crate_name(config))).collect::<Vec<ExtensionCrate>>()
-				})
-				.collect::<Vec<ExtensionCrate>>(),
-		);
-
-		// update UI for affected builds
-		for crate_type in &builds {
-			update_task_status(&crate_type.get_task_name(), BuildStatus::Pending).await;
-		}
-
-		tokio::join!(join_all(builds.iter().map(|e_crate| async move { PENDING_BUILDS.lock().await.insert(*e_crate) }),), join_all(copy_futures));
+	for crate_type in &builds {
+		update_task_status(&crate_type.get_task_name(), BuildStatus::Pending).await;
 	}
+
+	PENDING_BUILDS.lock().await.extend(builds);
 }
 
-async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>) {
+async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 	let builds = PENDING_BUILDS.lock().await.drain().collect::<Vec<_>>();
 	let copies = PENDING_COPIES.lock().await.drain().collect::<Vec<_>>();
 
@@ -534,22 +519,11 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, termin
 		return;
 	}
 
-	async fn redraw_ui(app: &Arc<Mutex<App>>, terminal: &Arc<Mutex<Terminal>>) {
-		let mut app_guard = app.lock().await;
-		let mut terminal_guard = terminal.lock().await;
-		if let Err(e) = terminal_guard.draw(&mut app_guard) {
-			error!("Failed to draw UI: {}", e);
-		}
-	}
-
 	for build in &builds {
 		update_task_status(&build.get_task_name(), BuildStatus::InProgress).await;
 	}
-	redraw_ui(&app, &terminal).await;
 
 	let build_results = join_all(builds.iter().map(|crate_type| {
-		let app_clone = Arc::clone(&app);
-		let terminal_clone = Arc::clone(&terminal);
 		let task_name = crate_type.get_task_name();
 
 		async move {
@@ -557,30 +531,22 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, termin
 
 			send_ui_message(EXMessage::TaskProgress(task_name_clone.clone(), 0.0)).await;
 
-			let progress_app = Arc::clone(&app_clone);
-			let progress_terminal = Arc::clone(&terminal_clone);
-
 			let result = crate_type
 				.build_crate(config, move |progress| {
 					let progress_task_name = task_name_clone.clone();
-					let inner_app = Arc::clone(&progress_app);
-					let inner_terminal = Arc::clone(&progress_terminal);
 
 					let _ = tokio::spawn(async move {
 						send_ui_message(EXMessage::TaskProgress(progress_task_name, progress)).await;
-						redraw_ui(&inner_app, &inner_terminal).await;
 					});
 				})
 				.await;
 
 			let status = match &result {
 				Some(Ok(_)) => {
-					info!("Build successful");
 					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
 					BuildStatus::Success
 				},
 				Some(Err(_)) | None => {
-					info!("Build failed");
 					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
 					BuildStatus::Failed
 				},
@@ -588,7 +554,6 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, termin
 
 			info!("{} completed with status: {:?}", task_name, status);
 			update_task_status(&task_name, status).await;
-			redraw_ui(&app_clone, &terminal_clone).await;
 
 			match result {
 				Some(r) => r,
@@ -598,15 +563,9 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, termin
 	}))
 	.await;
 
-	let copy_futures = copies.into_iter().map(|e_file| {
-		let app = Arc::clone(&app);
-		let terminal = Arc::clone(&terminal);
-
-		async move {
-			let result = e_file.copy_file_to_dist(config).await;
-			redraw_ui(&app, &terminal).await;
-			result
-		}
+	let copy_futures = copies.into_iter().map(|e_file| async move {
+		let result = e_file.copy_file_to_dist(config).await;
+		result
 	});
 
 	let copy_results = try_join_all(copy_futures).await;
@@ -623,12 +582,13 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>, termin
 
 	for e_crate in ExtensionCrate::iter() {
 		let task_name = e_crate.get_task_name();
-		if let Some(status) = app.lock().await.tasks.get(&task_name) {
+		let mut app_lock = app.lock().await;
+
+		if let Some(status) = app_lock.tasks.get_mut(&task_name) {
 			if *status == BuildStatus::InProgress {
-				update_task_status(&task_name, BuildStatus::Failed).await;
+				*status = BuildStatus::Failed;
+				info!("Finalizing {}...", task_name);
 			}
 		}
 	}
-
-	redraw_ui(&app, &terminal).await;
 }

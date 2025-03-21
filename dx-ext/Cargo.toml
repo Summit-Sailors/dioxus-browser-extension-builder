@@ -19,7 +19,6 @@ anyhow = "^1.0.97"
 chrono = { version = "^0.4.40", features = ["serde"] }
 clap = { version = "^4.5.32", features = ["derive"] }
 futures = { version = "^0.3.31" }
-lowdash = { version = "^0.5.3" }
 more-itertools = { version = "^0.1.6" }
 notify = { version = "^8.0.0" }
 serde = { version = "^1.0.219", features = ["derive"] }
@@ -35,10 +34,12 @@ dialoguer = "^0.11.0"
 
 rayon = "^1.10.0"
 
-blake3 = "^1.6.1"
+blake3 = "1.7.0"
 regex = "^1.11.1"
 
 walkdir = "^2.5.0"
+
+num_cpus = "1.16.0"
 
 # TUI
 crossterm = { version = "^0.28.1", features = ["event-stream"] }

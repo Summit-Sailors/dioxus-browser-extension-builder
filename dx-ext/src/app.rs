@@ -29,7 +29,7 @@ pub(crate) struct App {
 }
 
 impl App {
-	pub(crate) fn new() -> Self {
+	pub fn new() -> Self {
 		Self {
 			task_state: BuilState::Idle,
 			should_quit: false,
@@ -43,12 +43,12 @@ impl App {
 		}
 	}
 
-	pub(crate) fn has_active_tasks(&self) -> bool {
+	pub fn has_active_tasks(&self) -> bool {
 		!self.tasks.is_empty()
 	}
 
 	// overall progress with a weighted system
-	pub(crate) fn calculate_overall_progress(&self) -> f64 {
+	pub fn calculate_overall_progress(&self) -> f64 {
 		if self.tasks.is_empty() {
 			return 0.0;
 		}
@@ -78,7 +78,7 @@ impl App {
 		total_progress.max(0.0).min(1.0)
 	}
 
-	pub(crate) fn get_task_stats(&self) -> (usize, usize, usize, usize) {
+	pub fn get_task_stats(&self) -> (usize, usize, usize, usize) {
 		let total = self.tasks.len();
 		let pending = self.tasks.values().filter(|&&s| s == BuildStatus::Pending).count();
 		let in_progress = self.tasks.values().filter(|&&s| s == BuildStatus::InProgress).count();
@@ -89,7 +89,7 @@ impl App {
 	}
 
 	// update task state and recalculate progress
-	pub(crate) fn update_task(&mut self, task_name: String, status: BuildStatus) {
+	pub fn update_task(&mut self, task_name: String, status: BuildStatus) {
 		if !self.task_history.contains_key(&task_name) {
 			self.task_history.insert(task_name.clone(), TaskState::default());
 		}
@@ -157,7 +157,7 @@ impl App {
 		}
 	}
 
-	pub(crate) fn update_task_progress(&mut self, task_name: &str, progress: f64) {
+	pub fn update_task_progress(&mut self, task_name: &str, progress: f64) {
 		if let Some(task_state) = self.task_history.get_mut(task_name) {
 			task_state.progress = Some(progress.max(0.0).min(1.0));
 		}
@@ -169,7 +169,7 @@ impl App {
 		}
 	}
 
-	pub(crate) fn get_task_status(&self) -> String {
+	pub fn get_task_status(&self) -> String {
 		if self.tasks.is_empty() {
 			return "No active tasks".to_string();
 		}
@@ -257,7 +257,7 @@ impl App {
 		}
 	}
 
-	pub(crate) fn add_log(&mut self, level: LogLevel, message: &str) {
+	pub fn add_log(&mut self, level: LogLevel, message: &str) {
 		let (prefix, color) = match level {
 			LogLevel::Debug => ("[DEBUG]", Color::Blue),
 			LogLevel::Info => ("[INFO] ", Color::Green),
@@ -281,7 +281,7 @@ impl App {
 		}
 	}
 
-	pub(crate) async fn reset(&mut self) {
+	pub async fn reset(&mut self) {
 		self.log_buffer.clear();
 		self.add_log(LogLevel::Info, "Resetting application state...");
 

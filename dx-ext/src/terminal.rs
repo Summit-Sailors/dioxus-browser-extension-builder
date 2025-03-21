@@ -77,7 +77,12 @@ impl Terminal {
 			Self::render_logs(frame, chunks[3], app);
 
 			// render instructions
-			frame.render_widget(Paragraph::new("Press 'r' to run/restart task, 'q' to quit").centered().style(Style::default().fg(Color::Gray)), chunks[4]);
+			frame.render_widget(
+				Paragraph::new("Press 'r' to run/restart task, 'q' to quit, Use Up and Down keys to scroll through the logs")
+					.centered()
+					.style(Style::default().fg(Color::Gray)),
+				chunks[4],
+			);
 		})?;
 
 		Ok(())
@@ -90,14 +95,15 @@ impl Terminal {
 			.border_type(BorderType::Rounded)
 			.border_style(Style::default().fg(Color::DarkGray));
 
+		frame.render_widget(&logs_block, area);
 		let inner_area = logs_block.inner(area);
-		frame.render_widget(logs_block, area);
 
 		let max_logs = inner_area.height as usize;
 
 		// ensure scroll offset stays within bounds
-		if app.scroll_offset > app.log_buffer.len().saturating_sub(max_logs) {
-			app.scroll_offset = app.log_buffer.len().saturating_sub(max_logs);
+		let max_scroll = app.log_buffer.len().saturating_sub(max_logs);
+		if app.scroll_offset > max_scroll {
+			app.scroll_offset = max_scroll;
 		}
 
 		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().skip(app.scroll_offset).take(max_logs).cloned().map(ListItem::new).collect();
@@ -106,13 +112,7 @@ impl Terminal {
 
 		frame.render_widget(logs_list, inner_area);
 
-		// Scrollbar state
-		let content_length = if app.log_buffer.len() > max_logs {
-			app.log_buffer.len()
-		} else {
-			max_logs // max_logs when log buffer is smaller
-		};
-
+		let content_length = app.log_buffer.len().max(max_logs);
 		let mut scrollbar_state = ScrollbarState::default().position(app.scroll_offset).content_length(content_length);
 
 		frame.render_stateful_widget(
