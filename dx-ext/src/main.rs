@@ -293,18 +293,16 @@ async fn update_task_status(task_name: &str, status: BuildStatus) {
 }
 
 async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>, ui_rx: mpsc::UnboundedReceiver<EXMessage>) -> Result<()> {
+	let cancel_token = CancellationToken::new();
+	let ext_dir_binding = format!("./{}", config.extension_directory_name);
+	let ext_dir = Path::new(&ext_dir_binding);
 	let app_clone = app.clone();
 
 	for e_crate in ExtensionCrate::iter() {
 		app.lock().await.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
 	}
 
-	let cancel_token = CancellationToken::new();
-	let ui_cancel_token = cancel_token.clone();
-	let watch_cancel_token = cancel_token.clone();
-
-	// UI event loop
-	let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, ui_cancel_token));
+	let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, cancel_token.clone()));
 
 	info!("Building extension crates...");
 	for e_crate in ExtensionCrate::iter() {
@@ -314,7 +312,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 		let result = e_crate
 			.build_crate(&config, move |progress| {
 				let task_name = e_crate.get_task_name();
-				let _ = tokio::spawn(async move {
+				tokio::spawn(async move {
 					send_ui_message(EXMessage::TaskProgress(task_name, progress)).await;
 				});
 			})
@@ -344,9 +342,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 
 	info!("Initial build completed, setting up file watcher...");
 
-	// now the watcher
 	let (tx, rx) = mpsc::channel(100);
-
 	let mut watcher = RecommendedWatcher::new(
 		move |result: NotifyResult<Event>| {
 			if let Ok(event) = result {
@@ -359,8 +355,6 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 	)
 	.context("Failed to create file watcher")?;
 
-	let ext_dir_binding = format!("./{}", config.extension_directory_name);
-	let ext_dir = Path::new(&ext_dir_binding);
 	for e_file in EFile::iter() {
 		let watch_path = ext_dir.join(e_file.get_watch_path(&config));
 		if watch_path.exists() {
@@ -369,6 +363,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 			warn!("Watch path does not exist: {:?}", watch_path);
 		}
 	}
+
 	for e_crate in ExtensionCrate::iter() {
 		let crate_src_path = ext_dir.join(e_crate.get_crate_name(&config)).join("src");
 		if crate_src_path.exists() {
@@ -378,10 +373,11 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 		}
 	}
 
-	// watch task
-	let config_clone = config.clone();
-	let watch_task = tokio::spawn(async move {
-		watch_loop(rx, watch_cancel_token, config_clone, app_clone).await;
+	let watch_task = tokio::spawn({
+		let cancel_token = cancel_token.clone();
+		async move {
+			watch_loop(rx, cancel_token, config.clone(), app_clone).await;
+		}
 	});
 
 	tokio::select! {
@@ -396,7 +392,6 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 	}
 
 	cancel_token.cancel();
-
 	Ok(())
 }
 
