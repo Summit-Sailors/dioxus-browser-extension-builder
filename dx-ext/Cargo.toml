@@ -1,25 +1,51 @@
 [package]
-authors = { workspace = true }
-description = { workspace = true }
-edition = { workspace = true }
-license = { workspace = true }
+authors = ["Jeremy Meek", "Stephen Oketch"]
+categories = ["development-tools", "wasm", "web-programming"]
+description = "A browser extension builder for dioxus"
+edition = "2024"
+keywords = ["browser", "builder", "chrome", "extension", "wasm"]
+license = "MIT"
+name = "dioxus-ext-builder"
+repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
+rust-version = "1.85.0"
+version = "0.1.0"
+
+[[bin]]
 name = "dx-ext"
-repository = { workspace = true }
+path = "src/main.rs"
 
 [dependencies]
-anyhow = { workspace = true }
-chrono = { workspace = true }
-clap = { version = "4.5.31", features = ["derive"] }
-futures = { workspace = true }
-lowdash = { version = "0.5.3" }
-more-itertools = { version = "0.1.6" }
-notify = { version = "8.0.0" }
-strum = { workspace = true }
-strum_macros = { workspace = true }
-tokio = { version = "1.43.0", features = ["full"] }
-tokio-util = { version = "0.7.13" }
-tracing = { version = "0.1.41" }
-tracing-subscriber = { version = "0.3.19" }
+anyhow = "^1.0.97"
+chrono = { version = "^0.4.40", features = ["serde"] }
+clap = { version = "^4.5.32", features = ["derive"] }
+futures = { version = "^0.3.31" }
+more-itertools = { version = "^0.1.6" }
+notify = { version = "^8.0.0" }
+serde = { version = "^1.0.219", features = ["derive"] }
+strum = "^0.27.1"
+strum_macros = "^0.27.1"
+tokio = { version = "^1.44.1", features = ["full"] }
+tokio-util = { version = "^0.7.14" }
+toml = "^0.8.20"
+tracing = { version = "^0.1.41" }
+tracing-subscriber = { version = "^0.3.19", features = ["fmt"] }
+
+dialoguer = "^0.11.0"
+
+rayon = "^1.10.0"
+
+blake3 = "1.7.0"
+regex = "^1.11.1"
+
+walkdir = "^2.5.0"
+
+num_cpus = "1.16.0"
+
+# TUI
+crossterm = { version = "^0.28.1", features = ["event-stream"] }
+lazy_static = "^1.5.0"
+ratatui = { version = "^0.29.0", features = ["crossterm", "unstable"] }
+throbber-widgets-tui = "^0.8.0"
 
 [lints]
 workspace = true

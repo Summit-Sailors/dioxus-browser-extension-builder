@@ -1,9 +1,13 @@
 [workspace.package]
-authors = []
-description = ""
+authors = ["Jeremy Meek", "Stephen Oketch"]
+categories = ["development-tools", "wasm", "web-programming"]
+description = "A browser extension builder for dioxus"
 edition = "2024"
-license = ""
-repository = ""
+keywords = ["browser", "builder", "chrome", "extension", "wasm"]
+license = "MIT"
+repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
+rust-version = "1.87.0"
+version = "0.1.0"
 
 
 [workspace]
@@ -40,40 +44,34 @@ inherits = "dev"
 
 [workspace.dependencies]
 
-# frontend
-maestro-forms = { path = "../dioxus-maestro/frontend/maestro-forms" }
-maestro-hooks = { path = "../dioxus-maestro/frontend/maestro-hooks", features = ["web"] }
-maestro-toast = { path = "../dioxus-maestro/frontend/maestro-toast", features = ["web"] }
-maestro-ui = { path = "../dioxus-maestro/frontend/maestro-ui" }
-
-
-anyhow = "1.0.97"
-bon = "3.4.0"
-chrono = { version = "0.4.40", features = ["serde"] }
-futures = { version = "0.3.31" }
-itertools = { version = "0.14.0" }
-num-traits = { version = "0.2.19", features = [] }
+anyhow = "^1.0.97"
+bon = "^3.4.0"
+chrono = { version = "^0.4.40", features = ["serde"] }
+futures = { version = "^0.3.31" }
+itertools = { version = "^0.14.0" }
+num-traits = { version = "^0.2.19", features = [] }
 schemars = { git = "https://github.com/GREsau/schemars.git" }
-serde = { version = "1.0.218", features = ["derive"] }
-serde_json = "1.0.140"
-strum = "0.27.1"
-strum_macros = "0.27.1"
-url = { version = "2.5.4", features = ["serde"] }
-uuid = { version = "1.15.1", features = ["serde", "v4"] }
-validator = { version = "0.20.0", features = ["derive"] }
+serde = { version = "^1.0.218", features = ["derive"] }
+serde_json = "^1.0.140"
+strum = "^0.27.1"
+strum_macros = "^0.27.1"
+url = { version = "^2.5.4", features = ["serde"] }
+uuid = { version = "^1.15.1", features = ["serde", "v4"] }
+validator = { version = "^0.20.0", features = ["derive"] }
 
-dioxus = { version = "0.6.3", features = ["fullstack", "router"] }
-dioxus-free-icons = { version = "0.9.0", features = ["bootstrap", "feather", "font-awesome-solid", "ionicons", "lucide"] }
-dioxus-logger = "0.6.2"
+dioxus = { version = "^0.6.3", features = ["fullstack", "router"] }
+dioxus-free-icons = { version = "^0.9.0", features = ["bootstrap", "feather", "font-awesome-solid", "ionicons", "lucide"] }
+dioxus-logger = "^0.6.2"
 dioxus-sdk = { git = "https://github.com/DioxusLabs/sdk.git", features = ["timing"] }
 
-tailwind_fuse = { version = "0.3.2", features = ["variant"] }
+tailwind_fuse = { version = "^0.3.2", features = ["variant"] }
+
 
 [workspace.lints.rust]
 unsafe_code = "deny"
 
 elided_lifetimes_in_paths = "warn"
-rust_2021_idioms = "warn"
+rust_2018_idioms = "warn"
 rust_2021_prelude_collisions = "warn"
 semicolon_in_expressions_from_macros = "warn"
 trivial_numeric_casts = "warn"

@@ -3,7 +3,7 @@
 # -----------------------------------------------------------------------------
 # Section identical to scripts/clippy_wasm/clippy.toml:
 
-msrv = "1.83.0"
+msrv = "1.87.0-nightly"
 
 allow-unwrap-in-tests = true
 

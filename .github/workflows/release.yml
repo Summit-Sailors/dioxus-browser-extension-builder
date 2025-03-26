@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  RUST_BACKTRACE: 1
+  CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: true
+  ENV: Production
+  SERVER_URL: http://127.0.0.1:8071
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1.1.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+  publish-binaries:
+    name: Publish Binaries
+    needs: create-release
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_name: dx-ext
+            asset_name: dx-ext-linux-x86_64
+          - os: windows-latest
+            artifact_name: dx-ext.exe
+            asset_name: dx-ext-windows-x86_64.exe
+          - os: macos-latest
+            artifact_name: dx-ext
+            asset_name: dx-ext-macos-x86_64
+          - os: macos-arm64
+            artifact_name: dx-ext
+            asset_name: dx-ext-macos-aarch64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release --bin dx-ext
+
+      - name: Upload binary to release
+        uses: svenstaro/upload-release-action@2.9.0
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: target/release/${{ matrix.artifact_name }}
+          asset_name: ${{ matrix.asset_name }}
+          tag: ${{ github.ref }}
+
+  publish-crate:
+    name: Publish Crate
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Login to crates.io
+        run: cargo login ${{ secrets.CARGO_REGISTRY_TOKEN }} # to be set
+
+      - name: Publish crate
+        run: cargo publish --manifest-path dx-ext/Cargo.toml

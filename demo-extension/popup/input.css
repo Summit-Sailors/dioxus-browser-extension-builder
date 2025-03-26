@@ -1,10 +1,28 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@keyframes highlight {
+  0% {
+    background: #8f8;
+  }
+  100% {
+    background: auto;
+  }
+}
+
+.highlight {
+  animation: highlight 1s;
+}
 
 body,
 html {
-  @apply bg-gray-900 text-white flex flex-col h-full font-poppins tracking-wide w-[500px];
+  --font-dm-mono: "DM Mono", mono;
+  --font-poppins: "Poppins", serif;
+  @apply bg-gray-900 text-white flex flex-col h-full tracking-wide w-[500px];
+  font-family: var(--font-poppins);
+}
+
+.font-dm-mono {
+  font-family: var(--font-dm-mono);
 }
 
 /* Override specific classes */
@@ -22,42 +40,37 @@ input {
 }
 
 select {
-  -webkit-appearance: none; /* For Safari */
-  -moz-appearance: none; /* For Firefox */
-  appearance: none; /* For modern browsers */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
 }
 
 input[type="range"] {
-  -webkit-appearance: none; /* Hides the slider so that custom slider can be made */
-  width: 100%; /* Specific width is required for Firefox. */
-  background: transparent; /* Otherwise white in Chrome */
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
 }
 
 input[type="range"]:focus {
-  outline: none; /* Removes the blue border. You should probably do some kind of focus styling for accessibility reasons though. */
+  outline: none;
 }
 
 input[type="range"]::-ms-track {
   width: 100%;
   cursor: pointer;
-
-  /* Hides the slider so custom styles can be added */
   background: transparent;
   border-color: transparent;
   color: transparent;
 }
 
-/* Special styling for WebKit/Blink */
 input[type="range"]::-webkit-slider-thumb {
   @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
 }
 
-/* All the same stuff for Firefox */
 input[type="range"]::-moz-range-thumb {
   @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
 }
 
-/* All the same stuff for IE */
 input[type="range"]::-ms-thumb {
   @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
 }

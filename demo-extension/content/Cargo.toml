@@ -25,10 +25,10 @@ web-sys = { version = "0.3.77", features = ["Document", "Element", "EventTarget"
 
 readability-rs = "0.5.0"
 
-url = { workspace = true }
 anyhow = { workspace = true }
 bon = { workspace = true }
 chrono = { workspace = true, features = ["wasmbind"] }
+url = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

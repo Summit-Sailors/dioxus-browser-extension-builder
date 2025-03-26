@@ -1,0 +1,7 @@
+[extension-config]
+assets-directory = "popup/assets"
+background-script-index-name = "background_index.js"
+content-script-index-name = "content_index.js"
+enable-incremental-builds = true
+extension-directory-name = "demo-extension"
+popup-name = "popup"

@@ -4,7 +4,7 @@ use {
 	url::Url,
 	wasm_bindgen::prelude::*,
 	wasm_bindgen_futures::spawn_local,
-	web_sys::{window, Document, Element, HtmlElement, NodeList, Window},
+	web_sys::{Document, Element, HtmlElement, NodeList, Window, window},
 };
 
 #[wasm_bindgen(start)]
