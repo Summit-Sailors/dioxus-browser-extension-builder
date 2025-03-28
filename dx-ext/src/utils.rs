@@ -35,41 +35,26 @@ pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<bool> 
 		return Ok(false);
 	}
 
-	let extension_dir = if options.interactive {
-		Input::new().with_prompt("Enter extension directory name").default(options.extension_dir.clone()).interact_text()?
-	} else {
-		options.extension_dir.clone()
+	let get_interactive_or_default = |prompt: &str, default: &str| -> Result<String> {
+		if options.interactive { Ok(Input::new().with_prompt(prompt).default(default.to_string()).interact_text()?) } else { Ok(default.to_string()) }
 	};
 
-	let popup_name = if options.interactive {
-		Input::new().with_prompt("Enter popup crate name").default(options.popup_name.clone()).interact_text()?
-	} else {
-		options.popup_name.clone()
+	let get_interactive_bool_or_default = |prompt: &str, default: bool| -> Result<bool> {
+		if options.interactive { Ok(Confirm::new().with_prompt(prompt).default(default).interact()?) } else { Ok(default) }
 	};
 
-	let background_script = if options.interactive {
-		Input::new().with_prompt("Enter background script entry point").default(options.background_script.clone()).interact_text()?
-	} else {
-		options.background_script.clone()
-	};
+	// Use the helper functions to simplify value retrieval
+	let extension_dir = get_interactive_or_default("Enter extension directory name", &options.extension_dir)?;
 
-	let content_script = if options.interactive {
-		Input::new().with_prompt("Enter content script entry point").default(options.content_script.clone()).interact_text()?
-	} else {
-		options.content_script.clone()
-	};
+	let popup_name = get_interactive_or_default("Enter popup crate name", &options.popup_name)?;
 
-	let enable_incremental_builds = if options.interactive {
-		Confirm::new().with_prompt("Enable incremental builds?").default(options.enable_incremental_builds).interact()?
-	} else {
-		options.enable_incremental_builds
-	};
+	let background_script = get_interactive_or_default("Enter background script entry point", &options.background_script)?;
 
-	let assets_dir = if options.interactive {
-		Input::new().with_prompt("Enter assets directory").default(options.assets_dir.clone()).interact_text()?
-	} else {
-		options.assets_dir.clone()
-	};
+	let content_script = get_interactive_or_default("Enter content script entry point", &options.content_script)?;
+
+	let enable_incremental_builds = get_interactive_bool_or_default("Enable incremental builds?", options.enable_incremental_builds)?;
+
+	let assets_dir = get_interactive_or_default("Enter assets directory", &options.assets_dir)?;
 
 	let config_content = format!(
 		r#"[extension-config]
@@ -86,12 +71,12 @@ enable-incremental-builds = {}
 	fs::write("dx-ext.toml", config_content).context("Failed to write dx-ext.toml file")?;
 
 	info!("Configuration created successfully:");
-	info!("  Extension directory: {extension_dir}");
-	info!("  Popup crate: {popup_name}");
-	info!("  Background script: {background_script}");
-	info!("  Content script: {content_script}");
-	info!("  Assets directory: {assets_dir}");
-	info!("  Enable incremental builds: {}", enable_incremental_builds);
+	info!(" Extension directory: {extension_dir}");
+	info!(" Popup crate: {popup_name}");
+	info!(" Background script: {background_script}");
+	info!(" Content script: {content_script}");
+	info!(" Assets directory: {assets_dir}");
+	info!(" Enable incremental builds: {}", enable_incremental_builds);
 
 	Ok(true)
 }

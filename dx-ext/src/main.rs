@@ -93,19 +93,14 @@ use {
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
 	common::{BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
-	crossterm::{
-		ExecutableCommand,
-		cursor::Show,
-		event::{self, KeyCode, KeyEventKind},
-		terminal::disable_raw_mode,
-	},
+	crossterm::event::{self, KeyCode, KeyEventKind},
 	efile::EFile,
 	extcrate::ExtensionCrate,
 	futures::future::{join_all, try_join_all},
 	lazy_static::lazy_static,
 	logging::{LogCallback, LogLevel, TUILogLayer},
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
-	std::{io::stdout, path::Path, sync::Arc, time::Duration},
+	std::{path::Path, sync::Arc, time::Duration},
 	strum::IntoEnumIterator,
 	terminal::Terminal,
 	tokio::{
@@ -190,9 +185,9 @@ async fn main() -> Result<()> {
 			let _ = tracing::subscriber::set_global_default(subscriber);
 
 			let original_hook = std::panic::take_hook();
+			let terminal_clone = terminal.clone();
 			std::panic::set_hook(Box::new(move |info| {
-				let _ = disable_raw_mode();
-				let _ = stdout().execute(Show);
+				terminal_clone.clone().blocking_lock().leave();
 				original_hook(info);
 			}));
 
@@ -404,7 +399,11 @@ async fn run_ui_loop(
 	let mut interval = tokio::time::interval(Duration::from_millis(TICK_RATE_MS));
 	loop {
 		tokio::select! {
-			_ = cancel_token.cancelled() => break,
+			_ = cancel_token.cancelled() => {
+				let mut terminal_guard = terminal.lock().await;
+				terminal_guard.leave();
+				break;
+			},
 			_ = interval.tick() => {
 				// UI updates handler
 				{
@@ -414,10 +413,11 @@ async fn run_ui_loop(
 				// UI draw
 				{
 					let mut app_guard = app.lock().await;
+					let mut terminal_guard = terminal.lock().await;
 					if app_guard.should_quit {
+						terminal_guard.leave();
 						break;
 					}
-					let mut terminal_guard = terminal.lock().await;
 					if let Err(e) = terminal_guard.draw(&mut app_guard) {
 						error!("Failed to draw UI: {}", e);
 						break;

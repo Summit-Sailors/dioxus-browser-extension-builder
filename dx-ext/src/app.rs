@@ -213,11 +213,11 @@ impl App {
 				},
 				KeyCode::Up => {
 					if self.scroll_offset > 0 {
-						self.scroll_offset -= 1;
+						self.scroll_offset = self.scroll_offset.saturating_sub(1);
 					}
 				},
 				KeyCode::Down => {
-					if self.scroll_offset < self.max_logs {
+					if self.scroll_offset < self.log_buffer.len().saturating_sub(1) {
 						self.scroll_offset += 1;
 					}
 				},
@@ -272,7 +272,7 @@ impl App {
 			Span::styled(prefix, Style::default().fg(color)),
 			Span::styled(format!(" {}", message), Style::default()),
 		]);
-
+    
 		self.log_buffer.push(log_line);
 
 		if self.log_buffer.len() > self.max_logs {
