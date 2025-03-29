@@ -35,9 +35,9 @@ impl ExtensionCrate {
 
 	pub fn get_task_name(&self) -> String {
 		match self {
-			Self::Popup => "Building Popup".to_string(),
-			Self::Background => "Building Background".to_string(),
-			Self::Content => "Building Content".to_string(),
+			Self::Popup => "Building Popup".to_owned(),
+			Self::Background => "Building Background".to_owned(),
+			Self::Content => "Building Content".to_owned(),
 		}
 	}
 
@@ -61,8 +61,8 @@ impl ExtensionCrate {
 			return Ok(true);
 		}
 
-		let crate_output_js = format!("{}/{}_bg.js", target_dir, crate_name);
-		let crate_output_wasm = format!("{}/{}_bg.wasm", target_dir, crate_name);
+		let crate_output_js = format!("{target_dir}/{crate_name}_bg.js");
+		let crate_output_wasm = format!("{target_dir}/{crate_name}_bg.wasm");
 
 		if !Path::new(&crate_output_js).exists() || !Path::new(&crate_output_wasm).exists() {
 			return Ok(true);
@@ -95,8 +95,8 @@ impl ExtensionCrate {
 		progress_callback(0.0);
 
 		let should_build = if config.enable_incremental_builds {
-			let source_dir = format!("{}/{}", extension_dir, crate_name);
-			let target_dir = format!("{}/dist", extension_dir);
+			let source_dir = format!("{extension_dir}/{crate_name}");
+			let target_dir = format!("{extension_dir}/dist");
 
 			if !Path::new(&target_dir).exists() {
 				if let Err(e) = fs::create_dir_all(&target_dir) {
@@ -130,6 +130,8 @@ impl ExtensionCrate {
 		let mut attempts = 0;
 		const MAX_ATTEMPTS: usize = 3;
 
+		let re = regex::Regex::new(r"\[INFO\]:|\[ERROR\]:|\[WARN\]:").expect("An error occurred when creating the Regex");
+
 		while attempts < MAX_ATTEMPTS {
 			if attempts > 0 {
 				progress_callback_clone(0.0);
@@ -142,7 +144,7 @@ impl ExtensionCrate {
 				cmd.arg("--release");
 			}
 
-			cmd.arg(format!("{}/{}", extension_dir, crate_name));
+			cmd.arg(format!("{extension_dir}/{crate_name}"));
 			cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
 			let mut child = match cmd.spawn() {
@@ -156,26 +158,22 @@ impl ExtensionCrate {
 				},
 			};
 
-			let _ = match child.stdout.take() {
-				Some(stdout) => stdout,
-				None => {
-					let _ = child.kill().await;
-					error!("Failed to capture wasm-pack stdout");
-					return Some(Err(anyhow::anyhow!("Failed to capture build output")));
-				},
+			let Some(_) = child.stdout.take() else {
+				let _ = child.kill().await;
+				error!("Failed to capture wasm-pack stdout");
+				return Some(Err(anyhow::anyhow!("Failed to capture build output")));
 			};
 
 			let stderr = child.stderr.take();
 
 			if let Some(stderr) = stderr {
+				let re_clone = re.clone();
 				let _ = tokio::spawn(async move {
 					let reader = BufReader::new(stderr);
 					let mut lines = reader.lines();
 
-					let re = regex::Regex::new(r"\[INFO\]:|\[ERROR\]:|\[WARN\]:").unwrap();
-
 					while let Ok(Some(line)) = lines.next_line().await {
-						let clean_line = re.replace_all(&line, "").trim().to_string();
+						let clean_line = re_clone.replace_all(&line, "").trim().to_owned();
 
 						if line.contains("[INFO]:") {
 							info!("{}", clean_line);
@@ -187,7 +185,8 @@ impl ExtensionCrate {
 							debug!("{}", line);
 						}
 					}
-				});
+				})
+				.await;
 			}
 
 			match child.wait().await {

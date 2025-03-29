@@ -41,7 +41,6 @@ where
 			tracing::Level::DEBUG => LogLevel::Debug,
 			tracing::Level::INFO => LogLevel::Info,
 			tracing::Level::WARN => LogLevel::Warn,
-			tracing::Level::ERROR => LogLevel::Error,
 			_ => LogLevel::Error,
 		};
 
@@ -56,10 +55,10 @@ where
 
 struct MessageVisitor<'a>(&'a mut String);
 
-impl<'a> Visit for MessageVisitor<'a> {
+impl Visit for MessageVisitor<'_> {
 	fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
 		if field.name() == "message" {
-			self.0.push_str(&format!("{:?}", value));
+			self.0.push_str(&format!("{value:?}"));
 		}
 	}
 

@@ -1,6 +1,6 @@
 use {
 	crate::common::{ExtConfig, FILE_HASHES, FILE_TIMESTAMPS},
-	anyhow::{Context, Result},
+	anyhow::{Context, Error, Result},
 	futures::future::try_join_all,
 	std::{
 		fs,
@@ -54,7 +54,7 @@ impl EFile {
 		let mut reader = io::BufReader::new(file);
 		let mut hasher = blake3::Hasher::new();
 
-		let mut buffer = [0; 65536];
+		let mut buffer = [0; 16384];
 		loop {
 			let bytes_read = reader.read(&mut buffer).with_context(|| format!("Failed to read file for hashing: {path:?}"))?;
 
@@ -76,10 +76,7 @@ impl EFile {
 			return Ok(true);
 		}
 
-		let dest_metadata = match fs::metadata(dest) {
-			Ok(meta) => meta,
-			Err(_) => return Ok(true), // if we can't read dest metadata, assume copy needed
-		};
+		let dest_metadata = fs::metadata(dest).ok().ok_or(Ok::<bool, Error>(true)).expect("An error occurred when getting destination metadata");
 
 		// if sizes differ, definitely needs copy
 		if src_len != dest_metadata.len() {

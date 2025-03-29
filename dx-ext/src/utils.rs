@@ -36,7 +36,7 @@ pub(crate) fn create_default_config_toml(options: &InitOptions) -> Result<bool> 
 	}
 
 	let get_interactive_or_default = |prompt: &str, default: &str| -> Result<String> {
-		if options.interactive { Ok(Input::new().with_prompt(prompt).default(default.to_string()).interact_text()?) } else { Ok(default.to_string()) }
+		if options.interactive { Ok(Input::new().with_prompt(prompt).default(default.to_owned()).interact_text()?) } else { Ok(default.to_owned()) }
 	};
 
 	let get_interactive_bool_or_default = |prompt: &str, default: bool| -> Result<bool> {
@@ -63,9 +63,8 @@ background-script-index-name = "{background_script}"
 content-script-index-name = "{content_script}"
 extension-directory-name = "{extension_dir}"
 popup-name = "{popup_name}"
-enable-incremental-builds = {}
-"#,
-		enable_incremental_builds
+enable-incremental-builds = {enable_incremental_builds}
+"#
 	);
 
 	fs::write("dx-ext.toml", config_content).context("Failed to write dx-ext.toml file")?;
@@ -109,19 +108,19 @@ pub(crate) async fn show_final_build_report(app: Arc<Mutex<App>>) {
 		BuilState::Complete { duration } => {
 			let time_str =
 				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
-			println!("✅ Build completed successfully in {}", time_str);
-			println!("   Total tasks: {}, All successful", total);
+			println!("✅ Build completed successfully in {time_str}");
+			println!("   Total tasks: {total}, All successful");
 		},
 		BuilState::Failed { duration } => {
 			let time_str =
 				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
-			println!("❌ Build failed in {}", time_str);
-			println!("   Total tasks: {}, Successful: {}, Failed: {}", total, successful, failed);
+			println!("❌ Build failed in {time_str}");
+			println!("   Total tasks: {total}, Successful: {successful}, Failed: {failed}");
 
 			println!("\nFailed tasks:");
 			for (task_name, status) in &app_guard.tasks {
 				if *status == BuildStatus::Failed {
-					println!("   ❌ {}", task_name);
+					println!("   ❌ {task_name}");
 				}
 			}
 		},

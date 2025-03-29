@@ -76,8 +76,8 @@
 //! Build operations for crates are managed through the `ExtensionCrate` enum which uses `wasm-pack`:
 //! - It represents different browser extension components: Popup, Background, and Content.
 //! - It provides methods to get the crate name and task name for each component.
-//! - The needs_rebuild function checks if a rebuild is necessary based on file timestamps.
-//! - The build_crate function runs wasm-pack build, tracking progress with a callback.
+//! - The `needs_rebuild` function checks if a rebuild is necessary based on file timestamps.
+//! - The `build_crate` function runs wasm-pack build, tracking progress with a callback.
 //! - It includes error handling, incremental builds, and phase-based progress estimation.
 
 mod app;
@@ -167,92 +167,89 @@ impl FormatTime for CustomTime {
 async fn main() -> Result<()> {
 	let cli = Cli::parse();
 
-	match cli.command {
-		Commands::Init(options) => {
-			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).with_target(false).finish();
-			let _ = tracing::subscriber::set_global_default(subscriber);
+	if let Commands::Init(options) = cli.command {
+		let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).with_target(false).finish();
+		let _ = tracing::subscriber::set_global_default(subscriber);
 
-			let created = create_default_config_toml(&options)?;
-			if created {
-				info!("Created dx-ext.toml configuration file");
-			}
-			return Ok(());
-		},
-		_ => {
-			let (app, terminal, ui_rx, log_callback) = setup_tui().await?;
-			let tui_layer = TUILogLayer::new(log_callback);
-			let log_level = match &cli.command {
-				Commands::Watch(options) | Commands::Build(options) => match options.mode {
-					BuildMode::Development => Level::DEBUG,
-					BuildMode::Release => Level::INFO,
-				},
-				_ => Level::INFO,
-			};
-			let subscriber = tracing_subscriber::registry().with(tui_layer).with(tracing_subscriber::filter::LevelFilter::from_level(log_level));
-			let _ = tracing::subscriber::set_global_default(subscriber);
+		let created = create_default_config_toml(&options)?;
+		if created {
+			info!("Created dx-ext.toml configuration file");
+		}
+		return Ok(());
+	} else {
+		let (app, terminal, ui_rx, log_callback) = setup_tui().await?;
+		let tui_layer = TUILogLayer::new(log_callback);
+		let log_level = match &cli.command {
+			Commands::Watch(options) | Commands::Build(options) => match options.mode {
+				BuildMode::Development => Level::DEBUG,
+				BuildMode::Release => Level::INFO,
+			},
+			Commands::Init(_) => Level::INFO,
+		};
+		let subscriber = tracing_subscriber::registry().with(tui_layer).with(tracing_subscriber::filter::LevelFilter::from_level(log_level));
+		let _ = tracing::subscriber::set_global_default(subscriber);
 
-			let original_hook = std::panic::take_hook();
-			let terminal_clone = terminal.clone();
-			std::panic::set_hook(Box::new(move |info| {
-				terminal_clone.clone().blocking_lock().leave();
-				original_hook(info);
-			}));
+		let original_hook = std::panic::take_hook();
+		let terminal_clone = terminal.clone();
+		std::panic::set_hook(Box::new(move |info| {
+			terminal_clone.clone().blocking_lock().leave();
+			original_hook(info);
+		}));
 
-			match cli.command {
-				Commands::Watch(options) => {
-					let mut config = read_config().context("Failed to read configuration")?;
-					config.build_mode = options.mode;
-					info!("Using extension directory: {}", config.extension_directory_name);
-					if options.clean {
-						clean_dist_directory(&config).await?;
+		match cli.command {
+			Commands::Watch(options) => {
+				let mut config = read_config().context("Failed to read configuration")?;
+				config.build_mode = options.mode;
+				info!("Using extension directory: {}", config.extension_directory_name);
+				if options.clean {
+					clean_dist_directory(&config).await?;
+				}
+				hot_reload(config, app, terminal, ui_rx).await?;
+			},
+			Commands::Build(options) => {
+				let mut config = read_config().context("Failed to read configuration")?;
+				config.build_mode = options.mode;
+				info!("Using extension directory: {}", config.extension_directory_name);
+				if options.clean {
+					clean_dist_directory(&config).await?;
+				}
+				let cancel_token = CancellationToken::new();
+				let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, cancel_token.clone()));
+
+				for e_crate in ExtensionCrate::iter() {
+					update_task_status(&e_crate.get_task_name(), BuildStatus::InProgress).await;
+					let result = e_crate
+						.build_crate(&config, move |progress| {
+							let task_name = e_crate.get_task_name();
+							tokio::spawn(async move {
+								send_ui_message(EXMessage::TaskProgress(task_name, progress)).await;
+							});
+						})
+						.await;
+
+					match result {
+						Some(Ok(_)) => update_task_status(&e_crate.get_task_name(), BuildStatus::Success).await,
+						Some(Err(e)) => {
+							error!("Failed to build {}: {:?}", e_crate.get_task_name(), e);
+							update_task_status(&e_crate.get_task_name(), BuildStatus::Failed).await;
+						},
+						None => {},
 					}
-					hot_reload(config, app, terminal, ui_rx).await?;
-				},
-				Commands::Build(options) => {
-					let mut config = read_config().context("Failed to read configuration")?;
-					config.build_mode = options.mode;
-					info!("Using extension directory: {}", config.extension_directory_name);
-					if options.clean {
-						clean_dist_directory(&config).await?;
+				}
+
+				for e_file in EFile::iter() {
+					if let Err(e) = e_file.copy_file_to_dist(&config).await {
+						error!("Failed to copy file: {}", e);
 					}
-					let cancel_token = CancellationToken::new();
-					let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, cancel_token.clone()));
+				}
 
-					for e_crate in ExtensionCrate::iter() {
-						update_task_status(&e_crate.get_task_name(), BuildStatus::InProgress).await;
-						let result = e_crate
-							.build_crate(&config, move |progress| {
-								let task_name = e_crate.get_task_name();
-								let _ = tokio::spawn(async move {
-									send_ui_message(EXMessage::TaskProgress(task_name, progress)).await;
-								});
-							})
-							.await;
-
-						match result {
-							Some(Ok(_)) => update_task_status(&e_crate.get_task_name(), BuildStatus::Success).await,
-							Some(Err(e)) => {
-								error!("Failed to build {}: {:?}", e_crate.get_task_name(), e);
-								update_task_status(&e_crate.get_task_name(), BuildStatus::Failed).await;
-							},
-							None => todo!(),
-						}
-					}
-
-					for e_file in EFile::iter() {
-						if let Err(e) = e_file.copy_file_to_dist(&config).await {
-							error!("Failed to copy file: {}", e);
-						}
-					}
-
-					let _ = sleep(Duration::from_millis(500)).await; // wait for full UI update
-					cancel_token.cancel();
-					let _ = ui_task.await;
-					show_final_build_report(app).await;
-				},
-				_ => unreachable!(),
-			}
-		},
+				let _ = sleep(Duration::from_millis(500)).await; // wait for full UI update
+				cancel_token.cancel();
+				let _ = ui_task.await;
+				show_final_build_report(app).await;
+			},
+			Commands::Init(_) => unreachable!(),
+		}
 	}
 
 	Ok(())
@@ -281,7 +278,7 @@ async fn setup_tui() -> Result<(Arc<Mutex<App>>, Arc<Mutex<Terminal>>, mpsc::Unb
 	let ui_rx = initialize_sender().await;
 
 	let log_callback = Arc::new(Mutex::new(move |level: LogLevel, msg: &str| {
-		let message = EXMessage::LogMessage(level, msg.to_string());
+		let message = EXMessage::LogMessage(level, msg.to_owned());
 		tokio::spawn(send_ui_message(message));
 	}));
 
@@ -291,7 +288,7 @@ async fn setup_tui() -> Result<(Arc<Mutex<App>>, Arc<Mutex<Terminal>>, mpsc::Unb
 }
 
 async fn update_task_status(task_name: &str, status: BuildStatus) {
-	send_ui_message(EXMessage::UpdateTask(task_name.to_string(), status)).await;
+	send_ui_message(EXMessage::UpdateTask(task_name.to_owned(), status)).await;
 }
 
 async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex<Terminal>>, ui_rx: mpsc::UnboundedReceiver<EXMessage>) -> Result<()> {
@@ -462,7 +459,7 @@ async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationTok
 		tokio::select! {
 			_ = cancel_token.cancelled() => break,
 			Some(event) = rx.recv() => {
-				let _ = app.lock().await.overall_start_time = None;
+				app.lock().await.overall_start_time = None;
 				handle_event(&event, &config).await;
 				pending_events.reset();
 			}
@@ -488,7 +485,7 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 		.iter()
 		.flat_map(|path| {
 			let path_str = path.to_str().unwrap_or_default();
-			EFile::iter().filter_map(|e_file| path_str.contains(&e_file.get_watch_path(config)).then_some(e_file))
+			EFile::iter().filter(|e_file| path_str.contains(&e_file.get_watch_path(config)))
 		})
 		.collect::<Vec<_>>();
 	pending_copies.extend(copy_futures);
@@ -501,7 +498,7 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 			.iter()
 			.flat_map(|path| {
 				let path_str = path.to_str().unwrap_or_default();
-				ExtensionCrate::iter().filter_map(|e_crate| path_str.contains(&e_crate.get_crate_name(config)).then_some(e_crate))
+				ExtensionCrate::iter().filter(|e_crate| path_str.contains(&e_crate.get_crate_name(config)))
 			})
 			.collect::<Vec<_>>()
 	};
@@ -537,21 +534,18 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 				.build_crate(config, move |progress| {
 					let progress_task_name = task_name_clone.clone();
 
-					let _ = tokio::spawn(async move {
+					tokio::spawn(async move {
 						send_ui_message(EXMessage::TaskProgress(progress_task_name, progress)).await;
 					});
 				})
 				.await;
 
-			let status = match &result {
-				Some(Ok(_)) => {
-					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
-					BuildStatus::Success
-				},
-				Some(Err(_)) | None => {
-					send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
-					BuildStatus::Failed
-				},
+			let status = if let Some(Ok(_)) = &result {
+				send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
+				BuildStatus::Success
+			} else {
+				send_ui_message(EXMessage::TaskProgress(task_name.clone(), 1.0)).await;
+				BuildStatus::Failed
 			};
 
 			info!("{} completed with status: {:?}", task_name, status);
@@ -565,10 +559,7 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 	}))
 	.await;
 
-	let copy_futures = copies.into_iter().map(|e_file| async move {
-		let result = e_file.copy_file_to_dist(config).await;
-		result
-	});
+	let copy_futures = copies.into_iter().map(|e_file| async move { e_file.copy_file_to_dist(config).await });
 
 	let copy_results = try_join_all(copy_futures).await;
 

@@ -122,7 +122,7 @@ impl Terminal {
 		);
 	}
 
-	fn render_task_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
+	fn render_task_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
 		let tasks_block = Block::default()
 			.title(Line::from(Span::styled("Tasks", Style::default().fg(Color::Cyan))).centered())
 			.borders(Borders::ALL)
@@ -141,7 +141,7 @@ impl Terminal {
 
 	fn render_progress_bar(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 		let (progress, style, label, is_running) = if !app.has_active_tasks() {
-			(0.0, Style::default().fg(Color::DarkGray), " No active tasks ".to_string(), false)
+			(0.0, Style::default().fg(Color::DarkGray), " No active tasks ".to_owned(), false)
 		} else {
 			let (total, pending, in_progress, _completed) = app.get_task_stats();
 			let failed = app.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
@@ -157,17 +157,10 @@ impl Terminal {
 				},
 
 				BuilState::Running { progress, .. } => {
-					let style = if *progress < 0.33 {
-						Style::default().fg(Color::Yellow)
-					} else if *progress < 0.66 {
-						Style::default().fg(Color::Yellow)
-					} else {
-						Style::default().fg(Color::Green)
-					};
+					let style = if *progress < 0.66 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Green) };
 
 					let percent = (progress * 100.0).round();
-					let label =
-						format!(" {:.0}% | {}/{} completed, {}/{} in progress, {} pending, {} failed ", percent, success, total, in_progress, total, pending, failed);
+					let label = format!(" {percent:.0}% | {success}/{total} completed, {in_progress}/{total} in progress, {pending} pending, {failed} failed ");
 
 					(*progress, style, label, true)
 				},
@@ -179,7 +172,7 @@ impl Terminal {
 						format!("{:.1}s", duration.as_secs_f32())
 					};
 
-					(1.0, Style::default().fg(Color::Green), format!(" Complete ({}/{} tasks) in {} ", success, total, time_str), false)
+					(1.0, Style::default().fg(Color::Green), format!(" Complete ({success}/{total} tasks) in {time_str} "), false)
 				},
 
 				BuilState::Failed { duration } => {
@@ -189,7 +182,7 @@ impl Terminal {
 						format!("{:.1}s", duration.as_secs_f32())
 					};
 
-					(1.0, Style::default().fg(Color::Red), format!(" Failed ({}/{} tasks failed) in {} ", failed, total, time_str), false)
+					(1.0, Style::default().fg(Color::Red), format!(" Failed ({failed}/{total} tasks failed) in {time_str} "), false)
 				},
 			}
 		};

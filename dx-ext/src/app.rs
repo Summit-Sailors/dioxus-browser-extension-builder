@@ -60,8 +60,7 @@ impl App {
 		for (task_name, status) in &self.tasks {
 			let task_weight = 1.0 / total_tasks;
 			let task_progress = match status {
-				BuildStatus::Success => 1.0,
-				BuildStatus::Failed => 1.0,
+				BuildStatus::Failed | BuildStatus::Success => 1.0,
 				BuildStatus::InProgress => {
 					// trying to get more granular progress for in-progress tasks
 					if let Some(task_state) = self.task_history.get(task_name) {
@@ -76,7 +75,7 @@ impl App {
 			total_progress += task_weight * task_progress;
 		}
 
-		total_progress.max(0.0).min(1.0)
+		total_progress.clamp(0.0, 1.0)
 	}
 
 	pub fn get_task_stats(&self) -> (usize, usize, usize, usize) {
@@ -95,7 +94,7 @@ impl App {
 			self.task_history.insert(task_name.clone(), TaskState::default());
 		}
 
-		let task_state = self.task_history.get_mut(&task_name).unwrap();
+		let task_state = self.task_history.get_mut(&task_name).expect("An error occurred trying to get the task state");
 		let now = Instant::now();
 
 		match (task_state.status, status) {
@@ -160,7 +159,7 @@ impl App {
 
 	pub fn update_task_progress(&mut self, task_name: &str, progress: f64) {
 		if let Some(task_state) = self.task_history.get_mut(task_name) {
-			task_state.progress = Some(progress.max(0.0).min(1.0));
+			task_state.progress = Some(progress.clamp(0.0, 1.0));
 		}
 
 		// recalculate overall progress
@@ -172,7 +171,7 @@ impl App {
 
 	pub fn get_task_status(&self) -> String {
 		if self.tasks.is_empty() {
-			return "No active tasks".to_string();
+			return "No active tasks".to_owned();
 		}
 
 		let mut result = String::new();
@@ -193,7 +192,7 @@ impl App {
 				},
 			};
 
-			result.push_str(&format!("{} {} ", status_symbol, task));
+			result.push_str(&format!("{status_symbol} {task} "));
 
 			// separators between tasks
 			if completed < task_count {
@@ -275,9 +274,9 @@ impl App {
 		let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 
 		let log_line = Line::from(vec![
-			Span::styled(format!("{} ", timestamp), Style::default().fg(Color::DarkGray)),
+			Span::styled(format!("{timestamp} "), Style::default().fg(Color::DarkGray)),
 			Span::styled(prefix, Style::default().fg(color)),
-			Span::styled(format!(" {}", message), Style::default()),
+			Span::styled(format!(" {message}"), Style::default()),
 		]);
 
 		self.log_buffer.push(log_line);
