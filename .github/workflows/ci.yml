@@ -39,6 +39,10 @@ jobs:
           toolchain: ${{ matrix.rust }}
           components: clippy, rustfmt
 
+      - name: Install system dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
+
       - name: Install wasm-pack
         run: cargo install wasm-pack
 
@@ -68,6 +72,9 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies (Ubuntu)
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
