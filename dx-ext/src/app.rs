@@ -1,7 +1,8 @@
 use {
 	crate::{
-		EFile, ExtensionCrate, LogLevel, PENDING_BUILDS, PENDING_COPIES,
+		BuildMode, EFile, ExtensionCrate, LogLevel, PENDING_BUILDS, PENDING_COPIES,
 		common::{BuilState, BuildStatus, EXMessage, TaskState},
+		read_config,
 	},
 	crossterm::event::KeyCode,
 	ratatui::{
@@ -265,6 +266,12 @@ impl App {
 			LogLevel::Error => ("[ERROR]", Color::Red),
 		};
 
+		let config = read_config().expect("Failed to read config");
+
+		if matches!(config.build_mode, BuildMode::Release) && matches!(prefix, "[DEBUG]") {
+			return;
+		}
+
 		let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 
 		let log_line = Line::from(vec![
@@ -272,7 +279,7 @@ impl App {
 			Span::styled(prefix, Style::default().fg(color)),
 			Span::styled(format!(" {}", message), Style::default()),
 		]);
-    
+
 		self.log_buffer.push(log_line);
 
 		if self.log_buffer.len() > self.max_logs {

@@ -169,7 +169,7 @@ async fn main() -> Result<()> {
 
 	match cli.command {
 		Commands::Init(options) => {
-			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).finish();
+			let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).with_target(false).finish();
 			let _ = tracing::subscriber::set_global_default(subscriber);
 
 			let created = create_default_config_toml(&options)?;
@@ -181,7 +181,14 @@ async fn main() -> Result<()> {
 		_ => {
 			let (app, terminal, ui_rx, log_callback) = setup_tui().await?;
 			let tui_layer = TUILogLayer::new(log_callback);
-			let subscriber = tracing_subscriber::registry().with(tui_layer);
+			let log_level = match &cli.command {
+				Commands::Watch(options) | Commands::Build(options) => match options.mode {
+					BuildMode::Development => Level::DEBUG,
+					BuildMode::Release => Level::INFO,
+				},
+				_ => Level::INFO,
+			};
+			let subscriber = tracing_subscriber::registry().with(tui_layer).with(tracing_subscriber::filter::LevelFilter::from_level(log_level));
 			let _ = tracing::subscriber::set_global_default(subscriber);
 
 			let original_hook = std::panic::take_hook();
