@@ -17,7 +17,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "^1.0.97"
 chrono = { version = "^0.4.40", features = ["serde"] }
-clap = { version = "^4.5.32", features = ["derive"] }
+clap = { version = "4.5.34", features = ["derive"] }
 futures = { version = "^0.3.31" }
 more-itertools = { version = "^0.1.6" }
 notify = { version = "^8.0.0" }
