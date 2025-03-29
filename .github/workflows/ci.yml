@@ -30,24 +30,32 @@ jobs:
         rust: [stable]
 
     runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4.2.2
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install llvm
 
       - name: Install Rust ${{ matrix.rust }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
-          components: clippy, rustfmt
-
-      - name: Install system dependencies (Ubuntu)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
+          components: rustc, cargo, clippy, rustfmt
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2.7.7
+
+      - name: Clean build
+        run: cargo clean
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -72,9 +80,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-
-      - name: Install system dependencies (Ubuntu)
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev
 
       - name: Install wasm-pack
         run: cargo install wasm-pack
