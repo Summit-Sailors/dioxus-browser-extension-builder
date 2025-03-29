@@ -1,7 +1,8 @@
 use {
 	crate::{
-		EFile, ExtensionCrate, LogLevel, PENDING_BUILDS, PENDING_COPIES,
+		BuildMode, EFile, ExtensionCrate, LogLevel, PENDING_BUILDS, PENDING_COPIES,
 		common::{BuilState, BuildStatus, EXMessage, TaskState},
+		read_config,
 	},
 	crossterm::event::KeyCode,
 	ratatui::{
@@ -213,11 +214,11 @@ impl App {
 				},
 				KeyCode::Up => {
 					if self.scroll_offset > 0 {
-						self.scroll_offset -= 1;
+						self.scroll_offset = self.scroll_offset.saturating_sub(1);
 					}
 				},
 				KeyCode::Down => {
-					if self.scroll_offset < self.max_logs {
+					if self.scroll_offset < self.log_buffer.len().saturating_sub(1) {
 						self.scroll_offset += 1;
 					}
 				},
@@ -264,6 +265,12 @@ impl App {
 			LogLevel::Warn => ("[WARN] ", Color::Yellow),
 			LogLevel::Error => ("[ERROR]", Color::Red),
 		};
+
+		let config = read_config().expect("Failed to read config");
+
+		if matches!(config.build_mode, BuildMode::Release) && matches!(prefix, "[DEBUG]") {
+			return;
+		}
 
 		let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 

@@ -284,13 +284,17 @@ impl Terminal {
 
 		frame.render_widget(Paragraph::new(status_text).alignment(ratatui::layout::Alignment::Center).style(status_style), area);
 	}
-}
 
-impl Drop for Terminal {
-	fn drop(&mut self) {
+	pub fn leave(&mut self) {
 		_ = disable_raw_mode();
 		_ = self.terminal.backend_mut().execute(Show);
 		_ = self.terminal.show_cursor();
 		_ = self.terminal.backend_mut().execute(LeaveAlternateScreen);
+	}
+}
+
+impl Drop for Terminal {
+	fn drop(&mut self) {
+		self.leave();
 	}
 }
