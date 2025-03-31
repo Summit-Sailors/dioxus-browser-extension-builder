@@ -38,6 +38,9 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config binutils gcc
 
+      - name: Set linker path
+        run: sudo ln -s /usr/bin/lld-11 /usr/bin/ld
+
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install llvm
