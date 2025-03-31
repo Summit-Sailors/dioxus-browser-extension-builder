@@ -20,7 +20,6 @@ env:
   CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: true
   ENV: Local
   SERVER_URL: http://127.0.0.1:8071
-  RUSTFLAGS: -Clink-arg=-fuse-ld=gcc
 
 jobs:
   test:
