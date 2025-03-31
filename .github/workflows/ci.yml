@@ -36,11 +36,22 @@ jobs:
 
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config
+        run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config binutils gcc
 
       - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: brew install llvm
+
+      - name: Install Chocolatey
+        if: runner.os == 'Windows'
+        run: |
+          Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          choco install visualstudio2022buildtools llvm -y
+          $env:PATH = "$env:PATH;C:\Program Files\LLVM\bin"
 
       - name: Install Rust ${{ matrix.rust }}
         uses: dtolnay/rust-toolchain@master
@@ -51,11 +62,11 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack
 
+      - name: Install just
+        run: cargo install just
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2.7.7
-
-      - name: Clean build
-        run: cargo clean
 
       - name: Check formatting
         run: cargo fmt --all -- --check
