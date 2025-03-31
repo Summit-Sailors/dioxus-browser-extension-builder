@@ -5,7 +5,7 @@ description = "A browser extension builder for dioxus"
 edition = "2024"
 keywords = ["browser", "builder", "chrome", "extension", "wasm"]
 license = "MIT"
-name = "dioxus-ext-builder"
+name = "dioxus-browser-extension-builder"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
 rust-version = "1.85.0"
 version = "0.1.0"
@@ -34,7 +34,7 @@ dialoguer = "^0.11.0"
 
 rayon = "^1.10.0"
 
-blake3 = "1.7.0"
+blake3 = "1.8.0"
 regex = "^1.11.1"
 
 walkdir = "^2.5.0"

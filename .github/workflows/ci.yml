@@ -84,17 +84,19 @@ jobs:
       - name: Install wasm-pack
         run: cargo install wasm-pack
 
+      - name: Install just
+        run: cargo install just
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2.7.7
 
       - name: Build demo extension
         run: |
-          cd dx-ext
-          cargo run -- build -m release
+          just ext-bundle
 
       - name: Upload demo extension artifact
         uses: actions/upload-artifact@v4.6.1
         with:
           name: demo-extension
           path: demo-extension/dist/
-          retention-days: 7
+          retention-days: 2

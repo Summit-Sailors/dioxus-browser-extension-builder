@@ -1,11 +1,11 @@
 {
   "name": "extension",
   "version": "1.0",
-  "description": "extension",
+  "description": "extension description",
   "permissions": ["activeTab", "storage", "scripting", "tabs"],
   "host_permissions": ["<all_urls>"],
   "content_security_policy": {
-  "extension_pages": "script-src 'wasm-unsafe-eval' 'self'; object-src 'self';"
+    "extension_pages": "script-src 'wasm-unsafe-eval' 'self'; object-src 'self';"
   },
   "content_scripts": [
     {

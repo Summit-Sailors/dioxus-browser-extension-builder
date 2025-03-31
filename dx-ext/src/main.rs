@@ -114,7 +114,7 @@ use {
 		fmt::{format::Writer, time::FormatTime},
 		layer::SubscriberExt,
 	},
-	utils::{clean_dist_directory, create_default_config_toml, read_config, show_final_build_report},
+	utils::{clean_dist_directory, create_default_config_toml, read_config, setup_project_from_config, show_final_build_report},
 };
 
 lazy_static! {
@@ -174,6 +174,7 @@ async fn main() -> Result<()> {
 		let created = create_default_config_toml(&options)?;
 		if created {
 			info!("Created dx-ext.toml configuration file");
+			let _ = setup_project_from_config();
 		}
 		return Ok(());
 	} else {
