@@ -5,6 +5,9 @@ on:
     tags:
       - "v*.*.*"
 
+permissions:
+  contents: write
+
 env:
   RUST_BACKTRACE: 1
   CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: true
@@ -78,7 +81,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Login to crates.io
-        run: cargo login ${{ secrets.CARGO_REGISTRY_TOKEN }} # to be set
+        run: cargo login ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Publish crate
         run: cargo publish --manifest-path dx-ext/Cargo.toml
