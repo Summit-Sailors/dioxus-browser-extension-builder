@@ -9,7 +9,7 @@ This workspace provides a foundation for building browser extensions with Rust a
 Install the `dx-ext` CLI tool:
 
 ```bash
-cargo install dioxus-ext-builder
+cargo install dioxus-browser-extension-builder
 ```
 
 Initialize the extension configuration:
@@ -84,6 +84,10 @@ This is necessary because:
 - `rlib`(Rust Library) allows your crate to be used as a regular Rust library within your project. This is useful if you have other Rust code that depends on the crate.
 
 By including `cdylib` and `rlib`, you ensure your crate is built in a way that satisfies both the WebAssembly requirements of your browser extension and rust library needs of your project.
+
+## Contributing
+
+Contributions are welcome! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## Learn More
 

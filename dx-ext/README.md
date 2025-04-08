@@ -30,7 +30,7 @@ cargo install --path ./dx-ext
 ### From [crates.io](https://crates.io/crates/dx-ext)
 
 ```bash
-cargo install dioxus-ext-builder
+cargo install dioxus-browser-extension-builder
 ```
 
 ## Quick Start
@@ -231,10 +231,6 @@ If the file watcher isn't detecting changes:
 - Ensure you're modifying files within the watched directories
 - Try restarting the watcher
 - Check file permissions
-
-## Contributing
-
-Contributions are welcome! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
