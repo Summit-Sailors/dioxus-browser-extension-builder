@@ -27,7 +27,7 @@ cd dioxus-browser-extension-builder
 cargo install --path ./dx-ext
 ```
 
-### From [crates.io](https://crates.io/crates/dx-ext)
+### From [crates.io](https://crates.io/crates/dioxus-browser-extension-builder)
 
 ```bash
 cargo install dioxus-browser-extension-builder
