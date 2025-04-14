@@ -1,12 +1,7 @@
 use {
 	crate::common::{BuildMode, ExtConfig},
 	anyhow::Result,
-	std::{
-		fs,
-		path::Path,
-		process::Stdio,
-		time::SystemTime,
-	},
+	std::{fs, path::Path, process::Stdio, time::SystemTime},
 	tokio::{
 		io::{AsyncBufReadExt, BufReader},
 		process::Command,
