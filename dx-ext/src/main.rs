@@ -311,7 +311,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, terminal: Arc<Mutex
 		}
 	}
 	let ui_task = tokio::spawn(run_ui_loop(app.clone(), terminal, ui_rx, cancel_token.clone()));
-	info!("Building extension crates...");
+	info!("Building extension crates....");
 	let build_futures = ExtensionCrate::iter().map(|e_crate| {
 		let config = config.clone();
 		let task_name = e_crate.get_task_name();
