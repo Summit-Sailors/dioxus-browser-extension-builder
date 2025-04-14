@@ -39,7 +39,7 @@ impl App {
 			task_history: HashMap::new(),
 			log_buffer: Vec::new(),
 			scroll_offset: 0,
-			max_logs: 100,
+			max_logs: 1000,
 			overall_start_time: None,
 		}
 	}

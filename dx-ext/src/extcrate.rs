@@ -5,15 +5,18 @@ use {
 		fs,
 		path::Path,
 		process::Stdio,
-		time::{Duration, SystemTime},
+		time::SystemTime,
 	},
 	tokio::{
 		io::{AsyncBufReadExt, BufReader},
 		process::Command,
-		time::sleep,
 	},
 	tracing::{debug, error, info, warn},
 };
+
+lazy_static::lazy_static!(
+	static ref LOG_REGEX: regex::Regex = regex::Regex::new(r"\[INFO\]:|\[ERROR\]:|\[WARN\]:").expect("An error occurred when creating the Regex");
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter, strum_macros::Display)]
 #[strum(serialize_all = "lowercase")]
@@ -42,44 +45,41 @@ impl ExtensionCrate {
 	}
 
 	// check for crate-specific output files
-	async fn needs_rebuild(crate_name: &str, source_dir: &str, target_dir: &str) -> Result<bool> {
-		// newest source file
-		let mut newest_source = SystemTime::UNIX_EPOCH;
-		let walker = walkdir::WalkDir::new(source_dir).into_iter().filter_map(Result::ok).filter(|e| e.file_type().is_file());
-
-		for entry in walker {
-			if let Ok(metadata) = fs::metadata(entry.path()) {
-				if let Ok(modified) = metadata.modified() {
-					if modified > newest_source {
-						newest_source = modified;
-					}
-				}
-			}
+	async fn needs_rebuild(crate_name: String, source_dir: String, target_dir: String) -> Result<bool> {
+		let target_dir_path = Path::new(&target_dir);
+		if !target_dir_path.exists() {
+			return Ok(true);
 		}
+		let crate_output_js = target_dir_path.join(format!("{crate_name}_bg.js"));
+		let crate_output_wasm = target_dir_path.join(format!("{crate_name}_bg.wasm"));
+		if !crate_output_js.exists() || !crate_output_wasm.exists() {
+			return Ok(true);
+		}
+		// oldest target file timestamps
+		let oldest_target = [&crate_output_js, &crate_output_wasm]
+			.iter()
+			.filter_map(|path| fs::metadata(path).ok().and_then(|m| m.modified().ok()))
+			.min()
+			.unwrap_or_else(SystemTime::now);
 
-		if !Path::new(target_dir).exists() {
+		// find newest src file
+		let source_dir_path = Path::new(&source_dir);
+		if !source_dir_path.exists() {
 			return Ok(true);
 		}
 
-		let crate_output_js = format!("{target_dir}/{crate_name}_bg.js");
-		let crate_output_wasm = format!("{target_dir}/{crate_name}_bg.wasm");
-
-		if !Path::new(&crate_output_js).exists() || !Path::new(&crate_output_wasm).exists() {
-			return Ok(true);
-		}
-
-		// if specific crate output exists, check if it's older than the newest source
-		let mut oldest_target = SystemTime::now();
-
-		for output_path in [&crate_output_js, &crate_output_wasm] {
-			if let Ok(metadata) = fs::metadata(output_path) {
-				if let Ok(modified) = metadata.modified() {
-					if modified < oldest_target {
-						oldest_target = modified;
-					}
-				}
-			}
-		}
+		// tokio::task::spawn_blocking for CPU-bound file system ops
+		let newest_source = tokio::task::spawn_blocking(move || {
+			walkdir::WalkDir::new(source_dir)
+				.min_depth(1)
+				.into_iter()
+				.filter_map(|entry| entry.ok())
+				.filter(|e| e.file_type().is_file())
+				.filter_map(|entry| fs::metadata(entry.path()).ok().and_then(|m| m.modified().ok()))
+				.max()
+				.unwrap_or(SystemTime::UNIX_EPOCH)
+		})
+		.await?;
 
 		// if source is newer than target, rebuild is needed
 		Ok(newest_source > oldest_target)
@@ -104,7 +104,7 @@ impl ExtensionCrate {
 				}
 			}
 
-			match Self::needs_rebuild(&crate_name, &source_dir, &target_dir).await {
+			match Self::needs_rebuild(crate_name.clone(), source_dir.clone(), target_dir.clone()).await {
 				Ok(true) => {
 					debug!("Rebuild needed for {}", crate_name);
 					true
@@ -129,8 +129,6 @@ impl ExtensionCrate {
 
 		let mut attempts = 0;
 		const MAX_ATTEMPTS: usize = 3;
-
-		let re = regex::Regex::new(r"\[INFO\]:|\[ERROR\]:|\[WARN\]:").expect("An error occurred when creating the Regex");
 
 		while attempts < MAX_ATTEMPTS {
 			if attempts > 0 {
@@ -167,13 +165,12 @@ impl ExtensionCrate {
 			let stderr = child.stderr.take();
 
 			if let Some(stderr) = stderr {
-				let re_clone = re.clone();
 				let _ = tokio::spawn(async move {
 					let reader = BufReader::new(stderr);
 					let mut lines = reader.lines();
 
 					while let Ok(Some(line)) = lines.next_line().await {
-						let clean_line = re_clone.replace_all(&line, "").trim().to_owned();
+						let clean_line = LOG_REGEX.replace_all(&line, "").trim().to_owned();
 
 						if line.contains("[INFO]:") {
 							info!("{}", clean_line);
@@ -189,6 +186,19 @@ impl ExtensionCrate {
 				.await;
 			}
 
+			// capture and stdout for better diagnostics
+			if let Some(stdout) = child.stdout.take() {
+				let crate_name_clone = crate_name.clone();
+				tokio::spawn(async move {
+					let reader = BufReader::new(stdout);
+					let mut lines = reader.lines();
+
+					while let Ok(Some(line)) = lines.next_line().await {
+						debug!("[{}] {}", crate_name_clone, line);
+					}
+				});
+			}
+
 			match child.wait().await {
 				Ok(status) if status.success() => {
 					info!("wasm-pack build completed successfully for {}", crate_name);
@@ -197,16 +207,18 @@ impl ExtensionCrate {
 				},
 				Ok(_) => {
 					error!("wasm-pack build failed for {}", crate_name);
+					attempts += 1;
+					if attempts < MAX_ATTEMPTS {
+						warn!("Retrying build ({}/{})...", attempts, MAX_ATTEMPTS);
+					}
 				},
 				Err(e) => {
 					error!("Failed to wait for wasm-pack process: {}", e);
+					attempts += 1;
+					if attempts < MAX_ATTEMPTS {
+						warn!("Retrying build ({}/{})...", attempts, MAX_ATTEMPTS);
+					}
 				},
-			}
-
-			attempts += 1;
-			if attempts < MAX_ATTEMPTS {
-				warn!("Retrying build ({}/{})...", attempts, MAX_ATTEMPTS);
-				sleep(Duration::from_secs(2)).await;
 			}
 		}
 
