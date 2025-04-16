@@ -8,7 +8,7 @@ license = "MIT"
 name = "dioxus-browser-extension-builder"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
 rust-version = "1.86.0"
-version = "0.1.3"
+version = "0.1.4"
 
 [[bin]]
 name = "dx-ext"

@@ -132,7 +132,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2.100"
@@ -187,7 +187,7 @@ fn create_js_entry_point(base_dir: &str, filename: &str, component_type: &str) -
 (async () => {{
   try {{
     const src = chrome.runtime.getURL("{}.js");
-    const wasmPath = chrome.runtime.getURL("popup_bg.wasm");
+    const wasmPath = chrome.runtime.getURL("{}_bg.wasm");
 
     const contentMain = await import(src);
 
@@ -200,7 +200,8 @@ fn create_js_entry_point(base_dir: &str, filename: &str, component_type: &str) -
   }}
 }})();
 "#,
-		&config.popup_name
+		&config.popup_name.replace("-", "_"),
+		&config.popup_name.replace("-", "_")
 	);
 
 	let js_content = match component_type {
@@ -277,7 +278,7 @@ fn create_manifest_json(base_dir: &str) -> Result<()> {
 		r#"{{
 "name": "{extension_name}",
 "version": "1.0",
-"description": "extension description",
+"description": "dioxus browser extension builder extension template",
 "permissions": ["activeTab", "storage", "scripting", "tabs"],
 "host_permissions": ["<all_urls>"],
 "content_security_policy": {{

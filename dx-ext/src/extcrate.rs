@@ -201,7 +201,6 @@ impl ExtensionCrate {
 					return Some(Ok(()));
 				},
 				Ok(_) => {
-					error!("wasm-pack build failed for {}", crate_name);
 					attempts += 1;
 					if attempts < MAX_ATTEMPTS {
 						warn!("Retrying build ({}/{})...", attempts, MAX_ATTEMPTS);
