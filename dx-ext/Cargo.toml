@@ -8,7 +8,7 @@ license = "MIT"
 name = "dioxus-browser-extension-builder"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
 rust-version = "1.86.0"
-version = "0.1.4"
+version = "0.1.5"
 
 [[bin]]
 name = "dx-ext"
@@ -42,7 +42,6 @@ walkdir = "^2.5.0"
 num_cpus = "1.16.0"
 
 # TUI
-crossterm = { version = "0.29.0", features = ["event-stream"] }
 lazy_static = "^1.5.0"
 ratatui = { version = "^0.29.0", features = ["crossterm", "unstable"] }
 throbber-widgets-tui = "^0.8.0"

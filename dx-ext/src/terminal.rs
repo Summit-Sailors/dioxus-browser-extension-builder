@@ -3,34 +3,38 @@ use {
 		app::App,
 		common::{BuilState, BuildStatus},
 	},
-	crossterm::{
-		ExecutableCommand,
-		cursor::{Hide, Show},
-		terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-	},
 	ratatui::{
 		Frame,
+		crossterm::{
+			ExecutableCommand,
+			cursor::{Hide, Show},
+			terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+		},
 		layout::{Constraint, Direction, Layout, Rect},
+		prelude::CrosstermBackend,
 		style::{Color, Modifier, Style},
 		symbols,
 		text::{Line, Span},
 		widgets::{Block, BorderType, Borders, LineGauge, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 	},
-	std::io::{self, stdout},
+	std::{
+		io::{self, stderr},
+		ops::{Deref, DerefMut},
+	},
 };
 
 pub(crate) struct Terminal {
-	pub terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>,
+	pub terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stderr>>,
 }
 
 impl Terminal {
 	pub fn new() -> io::Result<Self> {
 		enable_raw_mode()?;
-		let mut stdout = stdout();
-		let _ = stdout.execute(Hide);
-		let _ = stdout.execute(EnterAlternateScreen)?;
+		let mut stderr = stderr();
+		let _ = stderr.execute(Hide);
+		let _ = stderr.execute(EnterAlternateScreen)?;
 
-		let backend = ratatui::backend::CrosstermBackend::new(stdout);
+		let backend = ratatui::backend::CrosstermBackend::new(stderr);
 		let terminal = ratatui::Terminal::new(backend)?;
 
 		Ok(Self { terminal })
@@ -283,6 +287,20 @@ impl Terminal {
 		_ = self.terminal.backend_mut().execute(Show);
 		_ = self.terminal.show_cursor();
 		_ = self.terminal.backend_mut().execute(LeaveAlternateScreen);
+	}
+}
+
+impl Deref for Terminal {
+	type Target = ratatui::Terminal<CrosstermBackend<std::io::Stderr>>;
+
+	fn deref(&self) -> &Self::Target {
+		&self.terminal
+	}
+}
+
+impl DerefMut for Terminal {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		&mut self.terminal
 	}
 }
 

@@ -93,13 +93,13 @@ use {
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
 	common::{BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
-	crossterm::event::{self, KeyCode, KeyEventKind},
 	efile::EFile,
 	extcrate::ExtensionCrate,
 	futures::future::{join_all, try_join_all},
 	lazy_static::lazy_static,
 	logging::{LogCallback, LogLevel, TUILogLayer},
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
+	ratatui::crossterm::event::{self, KeyCode, KeyEventKind},
 	std::{path::Path, sync::Arc, time::Duration},
 	strum::IntoEnumIterator,
 	terminal::Terminal,
@@ -433,6 +433,8 @@ async fn run_ui_loop(
 						if key.kind == KeyEventKind::Press && key_event_filter(&key.code) {
 							app.update(EXMessage::Keypress(key.code)).await;
 						}
+					} else {
+						// ignore
 					}
 				}
 				let should_quit = app.should_quit;

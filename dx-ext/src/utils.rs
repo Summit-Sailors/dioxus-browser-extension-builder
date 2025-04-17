@@ -64,7 +64,7 @@ content-script-index-name = "{content_script}"
 extension-directory-name = "{extension_dir}"
 popup-name = "{popup_name}"
 enable-incremental-builds = {enable_incremental_builds}
-"#
+  "#
 	);
 
 	fs::write("dx-ext.toml", config_content).context("Failed to write dx-ext.toml file")?;
@@ -124,6 +124,261 @@ pub(crate) fn generate_project_structure(config: &ExtConfig) -> Result<()> {
 	Ok(())
 }
 
+fn create_workspace_cargo_toml() -> Result<()> {
+	let config = read_config()?;
+	let cargo_content = format!(
+		r#"[workspace.package]
+description = ""
+authors = []
+license = ""
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["{}/{}", "{}/content", "{}/background",]
+resolver = "2"
+
+[profile.dev.package."*"]
+codegen-units = 1
+debug = false
+incremental = false
+opt-level = "z"
+strip = true
+
+
+[profile.release]
+codegen-units = 1
+debug = false
+incremental = false
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
+
+[workspace.dependencies]
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4.50"
+console_error_panic_hook = "0.1.7"
+gloo-utils = "0.2.0"
+js-sys = "0.3.77"
+serde-wasm-bindgen = "0.6.5"
+web-sys = {{ version = "0.3.77" }}
+  "#,
+		config.extension_directory_name, config.popup_name, config.extension_directory_name, config.extension_directory_name
+	);
+
+	let pwd = std::env::current_dir()?;
+
+	let cargo_path = pwd.join("Cargo.toml");
+	let mut file = fs::File::create(&cargo_path).context("Failed to create workspace Cargo.toml".to_owned())?;
+	file.write_all(cargo_content.as_bytes()).context("Failed to write to Cargo.toml")?;
+	Ok(())
+}
+
+fn init_git() -> Result<()> {
+	let gitignore_content = r#"
+*.lock
+*-lock.yaml
+
+*.env*
+!**/.env.example
+# Mac stuff:
+.DS_Store
+
+# trunk output folder
+dist
+
+# Rust compile target directories:
+target
+target_ra
+target_wasm
+
+# https://github.com/lycheeverse/lychee
+.lycheecache
+
+
+**/node_modules
+
+**.DS_Store
+
+src/.wdm
+src/bundle/
+src/.config
+.bin
+
+.ruff_cache
+
+src/typings
+
+.mypy_cache
+secrets.toml
+*.sqlite3
+
+.doppler
+
+db_dumps
+indexes
+pypi_packages_info.csv
+
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# testing
+coverage
+
+#svelte
+**/.svelte-kit
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# local env files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+
+
+# compiled output
+/dist
+/node_modules
+
+# Logs
+**/logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# OS
+.DS_Store
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.vercel
+
+outputs
+
+.ipynb_checkpoints
+.ipython
+.jupyter
+.local
+.npm
+.mypy_cache
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Environments
+.venv
+.venv/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+#  and can be added to the global gitignore or merged into this file.  For a more nuclear
+#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
+#.idea/
+
+
+# Added by cargo
+
+/target
+    "#
+	.to_owned();
+
+	let pwd = std::env::current_dir()?;
+
+	let gitignore_path = pwd.join(".gitignore");
+	let mut file = fs::File::create(&gitignore_path).context("Failed to create workspace Cargo.toml".to_owned())?;
+	file.write_all(gitignore_content.as_bytes()).context("Failed to write to Cargo.toml")?;
+
+	let _ = std::process::Command::new("git").arg("init").output()?;
+	Ok(())
+}
+
 fn create_cargo_toml(dir_path: &str, crate_name: &str) -> Result<()> {
 	let cargo_content = format!(
 		r#"[package]
@@ -135,13 +390,13 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wasm-bindgen = "0.2.100"
-wasm-bindgen-futures = "0.4.50"
-console_error_panic_hook = "0.1.7"
-gloo-utils = "0.2.0"
-js-sys = "0.3.77"
-serde-wasm-bindgen = "0.6.5"
-web-sys = {{ version = "0.3.77", features = ["Document", "Element", "EventTarget", "Location", "NodeList", "Window", "console"] }}
+wasm-bindgen = {{workspace = true}}
+wasm-bindgen-futures = {{workspace = true}}
+console_error_panic_hook = {{workspace = true}}
+gloo-utils = {{workspace = true}}
+js-sys = {{workspace = true}}
+serde-wasm-bindgen = {{workspace = true}}
+web-sys = {{ workspace = true, features = ["Document", "Element", "EventTarget", "Location", "NodeList", "Window", "console"] }}
 "#
 	);
 
@@ -155,23 +410,23 @@ fn create_lib_rs(dir_path: &str, component_name: &str) -> Result<()> {
 	let lib_content = format!(
 		r#"use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen]
-pub fn initialize() {{
-  // {component_name} initialization code
-  console_log!("Initialized {component_name} successfully");
-}}
+  #[wasm_bindgen]
+  pub fn initialize() {{
+    // {component_name} initialization code
+    console_log!("Initialized {component_name} successfully");
+  }}
 
-#[wasm_bindgen]
-extern "C" {{
-  #[wasm_bindgen(js_namespace = console)]
-  fn log(s: &str);
-}}
+  #[wasm_bindgen]
+  extern "C" {{
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+  }}
 
-#[macro_export]
-macro_rules! console_log {{
-  ($($t:tt)*) => (log(&format!($($t)*)))
-}}
-"#
+  #[macro_export]
+  macro_rules! console_log {{
+    ($($t:tt)*) => (log(&format!($($t)*)))
+  }}
+      "#
 	);
 
 	let lib_path = format!("{dir_path}/lib.rs");
@@ -199,7 +454,7 @@ fn create_js_entry_point(base_dir: &str, filename: &str, component_type: &str) -
     console.error("Failed to initialize WASM module:", err);
   }}
 }})();
-"#,
+    "#,
 		&config.popup_name.replace("-", "_"),
 		&config.popup_name.replace("-", "_")
 	);
@@ -210,7 +465,7 @@ fn create_js_entry_point(base_dir: &str, filename: &str, component_type: &str) -
 import init from "/background.js";
 
 init({ module_or_path: "/background_bg.wasm" });
-"#
+      "#
 		},
 		"content" => {
 			r#"// Content script entry point
@@ -262,9 +517,10 @@ fn create_html_file(base_dir: &str) -> Result<()> {
 <body>
   <div id="main"></div>
   <script type="module" src="index.js"></script>
+  <p>Welcome to the Dioxus browser extension builder template</p>
 </body>
 </html>
-"#;
+  "#;
 
 	let html_path = format!("{base_dir}/index.html");
 	let mut file = fs::File::create(&html_path).context("Failed to create index.html")?;
@@ -313,7 +569,7 @@ fn create_manifest_json(base_dir: &str) -> Result<()> {
 "default_title": "User script"
 }},
 "manifest_version": 3
-}}"#
+    }}"#
 	);
 
 	let manifest_path = format!("{base_dir}/manifest.json");
@@ -325,6 +581,8 @@ fn create_manifest_json(base_dir: &str) -> Result<()> {
 pub fn setup_project_from_config() -> Result<()> {
 	let config = crate::read_config()?;
 	generate_project_structure(&config)?;
+	create_workspace_cargo_toml()?;
+	init_git()?;
 	Ok(())
 }
 

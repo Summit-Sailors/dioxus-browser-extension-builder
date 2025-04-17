@@ -4,8 +4,8 @@ use {
 		common::{BuilState, BuildStatus, EXMessage, TaskState},
 		read_config,
 	},
-	crossterm::event::KeyCode,
 	ratatui::{
+		crossterm::event::KeyCode,
 		style::{Color, Style},
 		text::{Line, Span},
 	},
