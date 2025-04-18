@@ -16,6 +16,8 @@ use {
 	strum::IntoEnumIterator,
 };
 
+static LOG_BUFFER_SIZE: usize = 1000;
+
 #[derive(Debug, Clone)]
 pub(crate) struct App {
 	pub task_state: BuilState,
@@ -25,6 +27,7 @@ pub(crate) struct App {
 	pub task_history: HashMap<String, TaskState>,
 	pub log_buffer: Vec<Line<'static>>,
 	pub scroll_offset: usize,
+	pub user_scrolled: bool,
 	pub max_logs: usize,
 	pub overall_start_time: Option<Instant>,
 }
@@ -39,7 +42,8 @@ impl App {
 			task_history: HashMap::new(),
 			log_buffer: Vec::new(),
 			scroll_offset: 0,
-			max_logs: 1000,
+			user_scrolled: false,
+			max_logs: 0,
 			overall_start_time: None,
 		}
 	}
@@ -213,16 +217,20 @@ impl App {
 				},
 				KeyCode::Up => {
 					if self.scroll_offset > 0 {
-						self.scroll_offset = self.scroll_offset.saturating_sub(1);
+						self.scroll_offset = self.scroll_offset.saturating_sub(5);
+						self.user_scrolled = true;
 					}
 				},
 				KeyCode::Down => {
-					if self.scroll_offset < self.log_buffer.len().saturating_sub(1) {
-						self.scroll_offset += 1;
+					if self.scroll_offset < self.log_buffer.len().saturating_sub(5) && self.user_scrolled {
+						self.scroll_offset += 5;
+						self.user_scrolled = true;
 					}
 				},
 				_ => {},
 			},
+			EXMessage::Mouse(_mouse_event) => {},
+			EXMessage::Paste(_content) => {},
 			EXMessage::Tick => {
 				self.throbber_state.calc_next();
 			},
@@ -281,7 +289,7 @@ impl App {
 
 		self.log_buffer.push(log_line);
 
-		if self.log_buffer.len() > self.max_logs {
+		if self.log_buffer.len() > LOG_BUFFER_SIZE {
 			let excess = self.log_buffer.len() - self.max_logs;
 			self.log_buffer.drain(0..excess);
 		}
@@ -296,6 +304,7 @@ impl App {
 		self.overall_start_time = Some(Instant::now());
 		self.task_state = BuilState::Running { progress: 0.0, start_time: Instant::now() };
 		self.throbber_state.normalize(&throbber_widgets_tui::Throbber::default());
+		self.user_scrolled = false;
 
 		self.add_log(LogLevel::Info, "Initializing tasks...");
 		for e_crate in ExtensionCrate::iter() {

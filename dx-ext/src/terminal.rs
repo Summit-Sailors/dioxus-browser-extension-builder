@@ -102,21 +102,24 @@ impl Terminal {
 		frame.render_widget(&logs_block, area);
 		let inner_area = logs_block.inner(area);
 
-		let max_logs = inner_area.height as usize;
+		let max_visible_logs = inner_area.height as usize;
+		app.max_logs = max_visible_logs;
+
+		let total_logs = app.log_buffer.len();
+		let max_scroll = total_logs.saturating_sub(max_visible_logs);
 
 		// ensure scroll offset stays within bounds
-		let max_scroll = app.log_buffer.len().saturating_sub(max_logs);
-		if app.scroll_offset > max_scroll {
+		if app.scroll_offset > max_scroll || !app.user_scrolled {
 			app.scroll_offset = max_scroll;
 		}
 
-		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().skip(app.scroll_offset).take(max_logs).cloned().map(ListItem::new).collect();
+		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().skip(app.scroll_offset).take(max_visible_logs).cloned().map(ListItem::new).collect();
 
 		let logs_list = List::new(log_items).block(Block::default()).style(Style::default());
 
 		frame.render_widget(logs_list, inner_area);
 
-		let content_length = app.log_buffer.len().max(max_logs);
+		let content_length = total_logs.max(max_visible_logs);
 		let mut scrollbar_state = ScrollbarState::default().position(app.scroll_offset).content_length(content_length);
 
 		frame.render_stateful_widget(

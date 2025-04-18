@@ -1,6 +1,7 @@
 use {
 	crate::{LogLevel, efile::EFile, extcrate::ExtensionCrate},
 	clap::{ArgAction, Args, ValueHint},
+	ratatui::crossterm::event::{KeyCode, MouseEvent},
 	serde::{Deserialize, Serialize},
 	std::{
 		collections::{HashMap, HashSet},
@@ -65,7 +66,9 @@ pub enum BuilState {
 
 #[allow(dead_code)]
 pub(crate) enum EXMessage {
-	Keypress(ratatui::crossterm::event::KeyCode),
+	Keypress(KeyCode),
+	Paste(String),
+	Mouse(MouseEvent),
 	Tick,
 	BuildProgress(f64),
 	BuildComplete,
