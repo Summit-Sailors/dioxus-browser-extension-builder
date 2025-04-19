@@ -218,7 +218,9 @@ impl App {
 				KeyCode::Up => {
 					if self.scroll_offset > 0 {
 						self.scroll_offset = self.scroll_offset.saturating_sub(5);
-						self.user_scrolled = true;
+						if !self.user_scrolled {
+							self.user_scrolled = true;
+						}
 					}
 				},
 				KeyCode::Down => {

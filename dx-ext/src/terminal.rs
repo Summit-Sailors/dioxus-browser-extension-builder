@@ -1,14 +1,15 @@
 use {
 	crate::{
+		EXMessage,
 		app::App,
 		common::{BuilState, BuildStatus},
 	},
 	ratatui::{
 		Frame,
 		crossterm::{
-			ExecutableCommand,
-			cursor::{Hide, Show},
-			terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+			self, cursor,
+			event::{self, KeyCode, KeyEventKind},
+			terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 		},
 		layout::{Constraint, Direction, Layout, Rect},
 		prelude::CrosstermBackend,
@@ -20,27 +21,133 @@ use {
 	std::{
 		io::{self, stderr},
 		ops::{Deref, DerefMut},
+		sync::Arc,
+		time::Duration,
 	},
+	tokio::sync::{Mutex, mpsc},
+	tokio_util::sync::CancellationToken,
+	tracing::error,
 };
+
+const TICK_RATE_MS: u64 = 100;
 
 pub(crate) struct Terminal {
 	pub terminal: ratatui::Terminal<ratatui::backend::CrosstermBackend<io::Stderr>>,
+	pub cancellation_token: CancellationToken,
+	pub app: Arc<Mutex<App>>,
+	pub ui_rx: mpsc::UnboundedReceiver<EXMessage>,
+	pub ui_tx: mpsc::UnboundedSender<EXMessage>,
 }
 
 impl Terminal {
-	pub fn new() -> io::Result<Self> {
-		enable_raw_mode()?;
-		let mut stderr = stderr();
-		let _ = stderr.execute(Hide);
-		let _ = stderr.execute(EnterAlternateScreen)?;
-
-		let backend = ratatui::backend::CrosstermBackend::new(stderr);
+	pub fn new() -> Result<Self, io::Error> {
+		let backend = ratatui::backend::CrosstermBackend::new(stderr());
 		let terminal = ratatui::Terminal::new(backend)?;
+		let cancellation_token = CancellationToken::new();
+		let app = Arc::new(Mutex::new(App::new()));
+		let (ui_tx, ui_rx) = mpsc::unbounded_channel();
 
-		Ok(Self { terminal })
+		Ok(Self { terminal, cancellation_token, app, ui_rx, ui_tx })
 	}
 
-	pub fn draw(&mut self, app: &mut App) -> io::Result<()> {
+	pub(crate) fn exit_tui() -> Result<(), io::Error> {
+		crossterm::terminal::disable_raw_mode()?;
+		crossterm::execute!(std::io::stderr(), LeaveAlternateScreen, cursor::Show)?;
+		Ok(())
+	}
+
+	pub async fn start(&mut self) -> Result<(), io::Error> {
+		crossterm::terminal::enable_raw_mode()?;
+		crossterm::execute!(std::io::stderr(), EnterAlternateScreen, cursor::Hide)?;
+
+		let mut interval = tokio::time::interval(Duration::from_millis(TICK_RATE_MS));
+		let key_event_filter = |key: &KeyCode| -> bool { matches!(key, KeyCode::Char('q' | 'r') | KeyCode::Up | KeyCode::Down) };
+
+		loop {
+			tokio::select! {
+					_ = self.cancellation_token.cancelled() => {
+							Self::exit_tui()?;
+							break;
+					}
+
+					_ = interval.tick() => {
+							let should_quit;
+							{
+									let mut app = self.app.lock().await;
+									app.update(EXMessage::Tick).await;
+
+									if event::poll(Duration::from_millis(0))? {
+											match event::read()? {
+													event::Event::Key(key) => {
+															if key.kind == KeyEventKind::Press && key_event_filter(&key.code) {
+																	app.update(EXMessage::Keypress(key.code)).await;
+															}
+													}
+													event::Event::Mouse(mouse_event) => {
+															app.update(EXMessage::Mouse(mouse_event)).await;
+													}
+													event::Event::Paste(content) => {
+															app.update(EXMessage::Paste(content)).await;
+													}
+													_ => {}
+											}
+									}
+									should_quit = app.should_quit;
+							}
+
+							if !should_quit {
+									if let Err(e) = self.draw().await {
+											error!("Failed to draw UI: {}", e);
+											return Err(e);
+									}
+							} else {
+								self.cancellation_token.cancel();
+									Self::exit_tui()?;
+									break;
+							}
+					}
+
+					Some(ui_msg) = self.ui_rx.recv() => {
+							let should_quit;
+							{
+									let mut app = self.app.lock().await;
+									app.update(ui_msg).await;
+									should_quit = app.should_quit;
+							}
+
+							if should_quit {
+								self.cancellation_token.cancel();
+									Self::exit_tui()?;
+									break;
+							}
+
+							if let Err(e) = self.draw().await {
+									error!("Failed to draw UI: {}", e);
+									return Err(e);
+							}
+					}
+			}
+		}
+
+		Ok(())
+	}
+
+	pub async fn draw(&mut self) -> io::Result<()> {
+		let mut render_state = {
+			let app = self.app.lock().await;
+			App {
+				tasks: app.tasks.clone(),
+				log_buffer: app.log_buffer.clone(),
+				scroll_offset: app.scroll_offset,
+				user_scrolled: app.user_scrolled,
+				task_state: app.task_state.clone(),
+				should_quit: app.should_quit,
+				throbber_state: app.throbber_state.clone(),
+				task_history: app.task_history.clone(),
+				max_logs: app.max_logs,
+				overall_start_time: app.overall_start_time,
+			}
+		};
 		self.terminal.draw(|frame| {
 			let area = frame.area();
 
@@ -69,16 +176,16 @@ impl Terminal {
 				.split(inner_area);
 
 			// render task list
-			Self::render_task_list(frame, chunks[0], app);
+			Self::render_task_list(frame, chunks[0], &render_state);
 
 			// render status line
-			Self::render_status(frame, chunks[2], app);
+			Self::render_status(frame, chunks[2], &render_state);
 
 			// render the progress bar
-			Self::render_progress_bar(frame, chunks[1], app);
+			Self::render_progress_bar(frame, chunks[1], &mut render_state);
 
 			// render logs
-			Self::render_logs(frame, chunks[3], app);
+			Self::render_logs(frame, chunks[3], &mut render_state);
 
 			// render instructions
 			frame.render_widget(
@@ -88,6 +195,14 @@ impl Terminal {
 				chunks[4],
 			);
 		})?;
+
+		{
+			let mut app_guard = self.app.lock().await;
+			app_guard.scroll_offset = render_state.scroll_offset;
+			app_guard.tasks = render_state.tasks;
+			app_guard.task_state = render_state.task_state;
+			app_guard.overall_start_time = render_state.overall_start_time;
+		}
 
 		Ok(())
 	}
@@ -284,13 +399,6 @@ impl Terminal {
 
 		frame.render_widget(Paragraph::new(status_text).alignment(ratatui::layout::Alignment::Center).style(status_style), area);
 	}
-
-	pub fn leave(&mut self) {
-		_ = disable_raw_mode();
-		_ = self.terminal.backend_mut().execute(Show);
-		_ = self.terminal.show_cursor();
-		_ = self.terminal.backend_mut().execute(LeaveAlternateScreen);
-	}
 }
 
 impl Deref for Terminal {
@@ -309,6 +417,6 @@ impl DerefMut for Terminal {
 
 impl Drop for Terminal {
 	fn drop(&mut self) {
-		self.leave();
+		let _ = Self::exit_tui();
 	}
 }
