@@ -98,7 +98,6 @@ impl EFile {
 		// hashes comparison for final determination
 		let src_hash = Self::calculate_file_hash(src)?;
 		let dest_hash = Self::calculate_file_hash(dest)?;
-
 		// cache update with single lock acquisition
 		let (mut hashes, mut timestamps) = futures::join!(FILE_HASHES.lock(), FILE_TIMESTAMPS.lock());
 
@@ -117,7 +116,6 @@ impl EFile {
 		}
 
 		let src_metadata = fs::metadata(src).with_context(|| format!("Failed to get metadata for source file: {src:?}"))?;
-
 		let copy_needed = Self::needs_copy(src, dest, &src_metadata).await?;
 
 		if copy_needed {
@@ -147,10 +145,8 @@ impl EFile {
 		// optimal batch size based on number of CPUs
 		let batch_size = std::cmp::max(4, num_cpus::get());
 		let mut any_copied = false;
-
 		// processing directory entries in a streaming fashion
 		let entries = fs::read_dir(src).with_context(|| format!("Failed to read source directory: {src:?}"))?;
-
 		let mut batch = Vec::with_capacity(batch_size);
 
 		for entry_result in entries {
@@ -194,7 +190,6 @@ impl EFile {
 		info!("Copying {:?}...", self);
 		let src = self.get_copy_src(config);
 		let dest = self.get_copy_dest(config);
-
 		let result = if src.is_dir() { Self::copy_dir_all(&src, &dest).await } else { Self::copy_file(&src, &dest).await };
 
 		match result {

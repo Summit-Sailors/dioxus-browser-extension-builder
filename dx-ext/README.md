@@ -1,12 +1,13 @@
 # Dioxus Browser Extension Builder
 
-A CLI tool for building browser extensions for Dioxus.
+A CLI tool for building Dioxus browser extensions.
 
 ## Overview
 
 The Dioxus Browser Extension Builder (`dx-ext`) is a utility that simplifies the development and building of browser extensions using [Dioxus](https://dioxuslabs.com/)
 This tool handles:
 
+- Setting up a project workspace with a basic browser extension template
 - Building WASM components from your Rust code
 - Copying necessary assets and configuration files
 - Providing a hot-reload development environment
@@ -46,11 +47,13 @@ dx-ext build
 dx-ext watch
 ```
 
+Note: Use the `--help` or `-h` flag on each command for more information
+
 ## Command Details
 
 ### `dx-ext init`
 
-Creates a default `dx-ext.toml` configuration file in the current directory.
+Sets up a workspace and creates a default `dx-ext.toml` configuration file in the current directory.
 
 ```bash
 # Create with default values
@@ -80,7 +83,7 @@ Options:
 
 ### `dx-ext build`
 
-Builds all crates and copies necessary files to the distribution directory without watching for changes.
+Builds all crates in the specified mode (`dev` or `prod` -> default-> `dev`) and copies necessary files to the distribution directory without watching for changes.
 
 ```bash
 dx-ext build
@@ -175,14 +178,13 @@ your-project/
 
 ## Development Flow
 
-1. Create a new extension project or navigate to an existing one
-2. Run `dx-ext init` to create the default configuration, or customize with options
-3. Adjust your extension settings in `dx-ext.toml` if needed
-4. Run `dx-ext watch` to start the development server
-5. Make changes to your Rust code or extension files
-6. The tool will automatically rebuild and copy files as needed
-7. Load your extension from the `dist` directory in your browser
-8. When ready for production, run `dx-ext build` to create a final build
+1. Run `dx-ext init` to create the default configuration, or customize with options (use `-i` flag)
+2. Adjust your extension settings in `dx-ext.toml` if needed
+3. Run `dx-ext watch` to start the development server
+4. Make changes to your Rust code or extension files
+5. The tool will automatically rebuild and copy files as needed
+6. Load your extension from the `dist` directory in your browser
+7. When ready for production, run `dx-ext build -m prod` or `dx-ext build -m release` to create a release build
 
 ## File Watching
 
@@ -205,32 +207,6 @@ Changes trigger specific rebuilds:
 - Debounced builds to prevent multiple rebuilds when many files change at once
 - Cancellation token system for graceful shutdown
 - Asynchronous operations for non-blocking performance
-
-## Troubleshooting
-
-### Common Issues
-
-#### wasm-pack Build Failures
-
-If you encounter build failures:
-
-```bash
-[FAIL] wasm-pack build for background failed with status: exit code: 1
-```
-
-Check the following:
-
-- Ensure wasm-pack is correctly installed
-- Verify your Rust code compiles without errors
-- Check for incompatible dependencies
-
-#### File Watcher Issues
-
-If the file watcher isn't detecting changes:
-
-- Ensure you're modifying files within the watched directories
-- Try restarting the watcher
-- Check file permissions
 
 ## License
 

@@ -7,7 +7,7 @@ keywords = ["browser", "builder", "chrome", "extension", "wasm"]
 license = "MIT"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
 rust-version = "1.87.0"
-version = "0.1.6"
+version = "0.1.7"
 
 
 [workspace]
@@ -45,7 +45,7 @@ inherits = "dev"
 [workspace.dependencies]
 
 anyhow = "1.0.98"
-bon = "3.6.1"
+bon = "3.6.3"
 chrono = { version = "^0.4.40", features = ["serde"] }
 futures = { version = "^0.3.31" }
 itertools = { version = "0.14.0" }

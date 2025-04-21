@@ -15,7 +15,13 @@ cargo install dioxus-browser-extension-builder
 Initialize the extension configuration:
 
 ```bash
-dx-ext init
+dx-ext init # For the default configuration
+```
+
+Or
+
+```bash
+dx-ext init -i # To be able to set up your preferred configuration
 ```
 
 Start the development server:
@@ -24,7 +30,7 @@ Start the development server:
 dx-ext watch
 ```
 
-Load the extension from the `extension/dist` directory in your browser
+Load the extension from the `extension/dist` directory to your browser
 
 ## Development Workflow
 
@@ -69,7 +75,7 @@ extension/
 
 ## IMPORTANT
 
-`crate-type` setting for [Dioxus](https://dioxuslabs.com/) browser extension crates: When building Dioxus browser extensions using `wasm-pack`, each crate you define in your project needs a specific setting in it's `Cargo.toml` file. This ensures proper compilation for both WebAssembly and Rust library usage.
+`crate-type` setting for [Dioxus](https://dioxuslabs.com/) browser extension crates: When building Dioxus browser extensions using `wasm-pack`, each crate you define in your project needs a specific setting in it's manifest file (`Cargo.toml`) file. This ensures proper compilation for both WebAssembly and Rust library usage.
 
 Specifically, you'll need to add the following to your `[lib]` section:
 
@@ -91,5 +97,5 @@ Contributions are welcome! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for
 
 ## Learn More
 
-- [Dioxus Documentation](https://dioxuslabs.com/docs/)
 - [Browser Extension CLI Tool](https://github.com/Summit-Sailors/dioxus-browser-extension-builder/blob/main/dx-ext/README.md)
+- [Dioxus Documentation](https://dioxuslabs.com/docs/)

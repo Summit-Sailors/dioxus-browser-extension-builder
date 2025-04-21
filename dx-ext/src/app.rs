@@ -75,10 +75,8 @@ impl App {
 				},
 				BuildStatus::Pending => 0.0,
 			};
-
 			total_progress += task_weight * task_progress;
 		}
-
 		total_progress.clamp(0.0, 1.0)
 	}
 
@@ -115,7 +113,6 @@ impl App {
 				task_state.end_time = Some(now);
 				task_state.progress = Some(1.0);
 			},
-
 			_ => {},
 		}
 
@@ -274,7 +271,6 @@ impl App {
 			LogLevel::Warn => ("[WARN] ", Color::Yellow),
 			LogLevel::Error => ("[ERROR]", Color::Red),
 		};
-
 		let config = read_config().expect("Failed to read config");
 
 		if matches!(config.build_mode, BuildMode::Release) && matches!(prefix, "[DEBUG]") {
@@ -282,13 +278,11 @@ impl App {
 		}
 
 		let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
-
 		let log_line = Line::from(vec![
 			Span::styled(format!("{timestamp} "), Style::default().fg(Color::DarkGray)),
 			Span::styled(prefix, Style::default().fg(color)),
 			Span::styled(format!(" {message}"), Style::default()),
 		]);
-
 		self.log_buffer.push(log_line);
 
 		if self.log_buffer.len() > LOG_BUFFER_SIZE {
@@ -318,7 +312,6 @@ impl App {
 		for e_file in EFile::iter() {
 			PENDING_COPIES.lock().await.insert(e_file);
 		}
-
 		self.add_log(LogLevel::Info, "Reset complete, awaiting rebuild...");
 	}
 }

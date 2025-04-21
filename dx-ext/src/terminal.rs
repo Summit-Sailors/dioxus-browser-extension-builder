@@ -59,95 +59,69 @@ impl Terminal {
 	pub async fn start(&mut self) -> Result<(), io::Error> {
 		crossterm::terminal::enable_raw_mode()?;
 		crossterm::execute!(std::io::stderr(), EnterAlternateScreen, cursor::Hide)?;
-
 		let mut interval = tokio::time::interval(Duration::from_millis(TICK_RATE_MS));
 		let key_event_filter = |key: &KeyCode| -> bool { matches!(key, KeyCode::Char('q' | 'r') | KeyCode::Up | KeyCode::Down) };
 
 		loop {
 			tokio::select! {
-					_ = self.cancellation_token.cancelled() => {
-							Self::exit_tui()?;
-							break;
+				_ = self.cancellation_token.cancelled() => {
+					Self::exit_tui()?;
+					break;
+				}
+				_ = interval.tick() => {
+					if event::poll(Duration::from_millis(0))? {
+						let mut app = self.app.lock().await;
+						match event::read()? {
+							event::Event::Key(key) => {
+								if key.kind == KeyEventKind::Press && key_event_filter(&key.code) {
+									app.update(EXMessage::Keypress(key.code)).await;
+								}
+							}
+							event::Event::Mouse(mouse_event) => {
+								app.update(EXMessage::Mouse(mouse_event)).await;
+							}
+							event::Event::Paste(content) => {
+								app.update(EXMessage::Paste(content)).await;
+							}
+							_ => {}
+						}
 					}
 
-					_ = interval.tick() => {
-							let should_quit;
-							{
-									let mut app = self.app.lock().await;
-									app.update(EXMessage::Tick).await;
-
-									if event::poll(Duration::from_millis(0))? {
-											match event::read()? {
-													event::Event::Key(key) => {
-															if key.kind == KeyEventKind::Press && key_event_filter(&key.code) {
-																	app.update(EXMessage::Keypress(key.code)).await;
-															}
-													}
-													event::Event::Mouse(mouse_event) => {
-															app.update(EXMessage::Mouse(mouse_event)).await;
-													}
-													event::Event::Paste(content) => {
-															app.update(EXMessage::Paste(content)).await;
-													}
-													_ => {}
-											}
-									}
-									should_quit = app.should_quit;
-							}
-
-							if !should_quit {
-									if let Err(e) = self.draw().await {
-											error!("Failed to draw UI: {}", e);
-											return Err(e);
-									}
-							} else {
-								self.cancellation_token.cancel();
-									Self::exit_tui()?;
-									break;
-							}
+					if !self.process_update(EXMessage::Tick).await? {
+						return Ok(());
 					}
-
-					Some(ui_msg) = self.ui_rx.recv() => {
-							let should_quit;
-							{
-									let mut app = self.app.lock().await;
-									app.update(ui_msg).await;
-									should_quit = app.should_quit;
-							}
-
-							if should_quit {
-								self.cancellation_token.cancel();
-									Self::exit_tui()?;
-									break;
-							}
-
-							if let Err(e) = self.draw().await {
-									error!("Failed to draw UI: {}", e);
-									return Err(e);
-							}
+				}
+				Some(ui_msg) = self.ui_rx.recv() => {
+					if !self.process_update(ui_msg).await? {
+						return Ok(());
 					}
+				}
 			}
 		}
-
 		Ok(())
 	}
 
+	async fn process_update(&mut self, message: EXMessage) -> Result<bool, io::Error> {
+		let should_quit;
+		{
+			let mut app = self.app.lock().await;
+			app.update(message).await;
+			should_quit = app.should_quit;
+		}
+		if should_quit {
+			self.cancellation_token.cancel();
+			Self::exit_tui()?;
+			return Ok(false);
+		}
+		if let Err(e) = self.draw().await {
+			error!("Failed to draw UI: {}", e);
+			return Err(e);
+		}
+		Ok(true) // continue the loop
+	}
+
 	pub async fn draw(&mut self) -> io::Result<()> {
-		let mut render_state = {
-			let app = self.app.lock().await;
-			App {
-				tasks: app.tasks.clone(),
-				log_buffer: app.log_buffer.clone(),
-				scroll_offset: app.scroll_offset,
-				user_scrolled: app.user_scrolled,
-				task_state: app.task_state.clone(),
-				should_quit: app.should_quit,
-				throbber_state: app.throbber_state.clone(),
-				task_history: app.task_history.clone(),
-				max_logs: app.max_logs,
-				overall_start_time: app.overall_start_time,
-			}
-		};
+		let mut app = self.app.lock().await;
 		self.terminal.draw(|frame| {
 			let area = frame.area();
 
@@ -162,7 +136,6 @@ impl Terminal {
 			frame.render_widget(main_block, area);
 
 			// split inner area into sections
-
 			let chunks = Layout::default()
 				.direction(ratatui::layout::Direction::Vertical)
 				.margin(1)
@@ -176,16 +149,13 @@ impl Terminal {
 				.split(inner_area);
 
 			// render task list
-			Self::render_task_list(frame, chunks[0], &render_state);
-
+			Self::render_task_list(frame, chunks[0], &app);
 			// render status line
-			Self::render_status(frame, chunks[2], &render_state);
-
+			Self::render_status(frame, chunks[2], &app);
 			// render the progress bar
-			Self::render_progress_bar(frame, chunks[1], &mut render_state);
-
+			Self::render_progress_bar(frame, chunks[1], &mut app);
 			// render logs
-			Self::render_logs(frame, chunks[3], &mut render_state);
+			Self::render_logs(frame, chunks[3], &mut app);
 
 			// render instructions
 			frame.render_widget(
@@ -196,30 +166,24 @@ impl Terminal {
 			);
 		})?;
 
-		{
-			let mut app_guard = self.app.lock().await;
-			app_guard.scroll_offset = render_state.scroll_offset;
-			app_guard.tasks = render_state.tasks;
-			app_guard.task_state = render_state.task_state;
-			app_guard.overall_start_time = render_state.overall_start_time;
-		}
-
 		Ok(())
 	}
 
-	fn render_logs(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-		let logs_block = Block::default()
-			.title(Line::from(Span::styled("Logs ", Style::default().fg(Color::Cyan))).centered())
+	fn render_block(title: &str) -> Block<'_> {
+		Block::default()
+			.title(Line::from(Span::styled(title, Style::default().fg(Color::Cyan))).centered())
 			.borders(Borders::ALL)
 			.border_type(BorderType::Rounded)
-			.border_style(Style::default().fg(Color::DarkGray));
+			.border_style(Style::default().fg(Color::DarkGray))
+	}
 
+	fn render_logs(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
+		let logs_block = Self::render_block("Logs");
 		frame.render_widget(&logs_block, area);
 		let inner_area = logs_block.inner(area);
 
 		let max_visible_logs = inner_area.height as usize;
 		app.max_logs = max_visible_logs;
-
 		let total_logs = app.log_buffer.len();
 		let max_scroll = total_logs.saturating_sub(max_visible_logs);
 
@@ -229,7 +193,6 @@ impl Terminal {
 		}
 
 		let log_items: Vec<ListItem<'_>> = app.log_buffer.iter().skip(app.scroll_offset).take(max_visible_logs).cloned().map(ListItem::new).collect();
-
 		let logs_list = List::new(log_items).block(Block::default()).style(Style::default());
 
 		frame.render_widget(logs_list, inner_area);
@@ -245,17 +208,11 @@ impl Terminal {
 	}
 
 	fn render_task_list(frame: &mut Frame<'_>, area: Rect, app: &App) {
-		let tasks_block = Block::default()
-			.title(Line::from(Span::styled("Tasks", Style::default().fg(Color::Cyan))).centered())
-			.borders(Borders::ALL)
-			.border_type(BorderType::Rounded)
-			.border_style(Style::default().fg(Color::DarkGray));
-
+		let tasks_block = Self::render_block("Tasks");
 		let inner_area = tasks_block.inner(area);
+
 		frame.render_widget(tasks_block, area);
-
 		let tasks_text = app.get_task_status();
-
 		let tasks_paragraph = Paragraph::new(tasks_text).centered().style(Style::default().fg(Color::White));
 
 		frame.render_widget(tasks_paragraph, inner_area);
@@ -280,7 +237,6 @@ impl Terminal {
 
 				BuilState::Running { progress, .. } => {
 					let style = if *progress < 0.66 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Green) };
-
 					let percent = (progress * 100.0).round();
 					let label = format!(" {percent:.0}% | {success}/{total} completed, {in_progress}/{total} in progress, {pending} pending, {failed} failed ");
 
@@ -318,7 +274,6 @@ impl Terminal {
 				Constraint::Percentage(10), // status indicators
 			])
 			.split(area);
-
 		let gauge_area = split_areas[1];
 		let icon_area = split_areas[2];
 
@@ -326,7 +281,6 @@ impl Terminal {
 		frame.render_widget(LineGauge::default().filled_style(style).line_set(symbols::line::THICK).ratio(progress).label(label), gauge_area);
 
 		let split_icon_areas = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(3), Constraint::Fill(1)]).split(icon_area);
-
 		let throbber_area = split_icon_areas[0];
 		let time_area = split_icon_areas[1];
 

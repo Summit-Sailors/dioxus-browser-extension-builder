@@ -1,6 +1,6 @@
 //! # dx-ext
 //!
-//! A CLI tool for building browser extension using Dioxus
+//! A CLI tool for building Dioxus browser extension
 //! `dx-ext` simplifies the development workflow for creating browser extensions with Dioxus
 //!
 //! ## Commands
@@ -400,7 +400,11 @@ async fn watch_loop(mut rx: mpsc::Receiver<Event>, cancel_token: CancellationTok
 		tokio::select! {
 			_ = cancel_token.cancelled() => break,
 			Some(event) = rx.recv() => {
-				app.lock().await.overall_start_time = None;
+				{
+					let mut app_guard = app.lock().await;
+					app_guard.overall_start_time = None;
+					app_guard.user_scrolled = false;
+				}
 				handle_event(&event, &config).await;
 				pending_events.reset();
 			}
