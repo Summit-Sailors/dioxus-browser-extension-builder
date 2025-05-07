@@ -3,6 +3,7 @@ use {
 		EXMessage,
 		app::App,
 		common::{BuilState, BuildStatus},
+		show_final_build_report,
 	},
 	ratatui::{
 		Frame,
@@ -111,6 +112,10 @@ impl Terminal {
 		if should_quit {
 			self.cancellation_token.cancel();
 			Self::exit_tui()?;
+			if self.app.lock().await.has_active_tasks() {
+				show_final_build_report(self.app.clone()).await;
+				std::process::exit(1);
+			}
 			return Ok(false);
 		}
 		if let Err(e) = self.draw().await {
