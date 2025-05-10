@@ -8,7 +8,7 @@ license = "MIT"
 name = "dioxus-browser-extension-builder"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
 rust-version = "1.86.0"
-version = "0.1.7"
+version = "0.1.8"
 
 [[bin]]
 name = "dx-ext"
@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.98"
-chrono = { version = "^0.4.40", features = ["serde"] }
+chrono = { version = "0.4.41", features = ["serde"] }
 clap = { version = "4.5.37", features = ["derive"] }
 futures = { version = "^0.3.31" }
 more-itertools = { version = "^0.1.6" }
@@ -24,9 +24,9 @@ notify = { version = "^8.0.0" }
 serde = { version = "^1.0.219", features = ["derive"] }
 strum = "^0.27.1"
 strum_macros = "^0.27.1"
-tokio = { version = "1.44.2", features = ["full"] }
-tokio-util = { version = "^0.7.14" }
-toml = "^0.8.20"
+tokio = { version = "1.45.0", features = ["full"] }
+tokio-util = { version = "0.7.15" }
+toml = "0.8.22"
 tracing = { version = "^0.1.41" }
 tracing-subscriber = { version = "^0.3.19", features = ["fmt"] }
 
