@@ -36,20 +36,45 @@ impl Default for TaskProgress {
 // history tracking
 #[derive(Debug, Clone)]
 pub struct TaskState {
-	pub status: BuildStatus,
+	pub status: TaskStatus,
 	pub start_time: Option<Instant>,
 	pub end_time: Option<Instant>,
 	pub progress: Option<f64>,
+	pub weight: f64,
 }
 
 impl Default for TaskState {
 	fn default() -> Self {
-		Self { status: BuildStatus::Pending, start_time: None, end_time: None, progress: None }
+		Self { status: TaskStatus::Pending, start_time: None, end_time: None, progress: None, weight: 1.0 }
+	}
+}
+
+#[derive(Debug, Clone)]
+pub struct TaskStats {
+	pub total: usize,
+	pub pending: usize,
+	pub in_progress: usize,
+	pub completed: usize,
+	pub failed: usize,
+}
+
+#[allow(dead_code)]
+impl TaskStats {
+	pub fn is_all_complete(&self) -> bool {
+		self.pending == 0 && self.in_progress == 0
+	}
+
+	pub fn has_failures(&self) -> bool {
+		self.failed > 0
+	}
+
+	pub fn completion_ratio(&self) -> f64 {
+		if self.total == 0 { 0.0 } else { (self.completed + self.failed) as f64 / self.total as f64 }
 	}
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum BuildStatus {
+pub enum TaskStatus {
 	Pending,
 	InProgress,
 	Success,
@@ -57,7 +82,7 @@ pub enum BuildStatus {
 }
 
 #[derive(Debug, Clone)]
-pub enum BuilState {
+pub enum BuildState {
 	Idle,
 	Running { progress: f64, start_time: Instant },
 	Complete { duration: Duration },
@@ -71,9 +96,7 @@ pub(crate) enum EXMessage {
 	Mouse(MouseEvent),
 	Tick,
 	BuildProgress(f64),
-	BuildComplete,
-	BuildFailed,
-	UpdateTask(String, BuildStatus),
+	UpdateTask(String, TaskStatus),
 	LogMessage(LogLevel, String),
 	TaskProgress(String, f64),
 }

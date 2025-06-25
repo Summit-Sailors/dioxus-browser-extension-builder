@@ -1,10 +1,5 @@
 use {
-	crate::{
-		EXMessage,
-		app::App,
-		common::{BuilState, BuildStatus},
-		show_final_build_report,
-	},
+	crate::{EXMessage, app::App, common::BuildState, show_final_build_report},
 	ratatui::{
 		Frame,
 		crossterm::{
@@ -227,45 +222,39 @@ impl Terminal {
 		let (progress, style, label, is_running) = if !app.has_active_tasks() {
 			(0.0, Style::default().fg(Color::DarkGray), " No active tasks ".to_owned(), false)
 		} else {
-			let (total, pending, in_progress, _completed) = app.get_task_stats();
-			let failed = app.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
-			let success = app.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
-
+			let stats = app.get_task_stats();
 			match &app.task_state {
-				BuilState::Idle => {
-					if pending > 0 {
-						(0.0, Style::default().fg(Color::Yellow), format!(" Preparing {} task{} ", total, if total != 1 { "s" } else { "" }), false)
+				BuildState::Idle => {
+					if stats.pending > 0 {
+						(0.0, Style::default().fg(Color::Yellow), format!(" Preparing {} task{} ", stats.total, if stats.total != 1 { "s" } else { "" }), false)
 					} else {
-						(0.0, Style::default().fg(Color::DarkGray), format!(" Waiting to start {} task{} ", total, if total != 1 { "s" } else { "" }), false)
+						(0.0, Style::default().fg(Color::DarkGray), format!(" Waiting to start {} task{} ", stats.total, if stats.total != 1 { "s" } else { "" }), false)
 					}
 				},
-
-				BuilState::Running { progress, .. } => {
+				BuildState::Running { progress, .. } => {
 					let style = if *progress < 0.66 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Green) };
 					let percent = (progress * 100.0).round();
-					let label = format!(" {percent:.0}% | {success}/{total} completed, {in_progress}/{total} in progress, {pending} pending, {failed} failed ");
-
+					let label = format!(
+						" {percent:.0}% | {}/{} completed, {}/{} in progress, {} pending, {} failed ",
+						stats.completed, stats.total, stats.in_progress, stats.total, stats.pending, stats.failed
+					);
 					(*progress, style, label, true)
 				},
-
-				BuilState::Complete { duration } => {
+				BuildState::Complete { duration } => {
 					let time_str = if duration.as_secs() >= 60 {
 						format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
 					} else {
 						format!("{:.1}s", duration.as_secs_f32())
 					};
-
-					(1.0, Style::default().fg(Color::Green), format!(" Complete ({success}/{total} tasks) in {time_str} "), false)
+					(1.0, Style::default().fg(Color::Green), format!(" Complete ({}/{} tasks) in {time_str} ", stats.completed, stats.total), false)
 				},
-
-				BuilState::Failed { duration } => {
+				BuildState::Failed { duration } => {
 					let time_str = if duration.as_secs() >= 60 {
 						format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
 					} else {
 						format!("{:.1}s", duration.as_secs_f32())
 					};
-
-					(1.0, Style::default().fg(Color::Red), format!(" Failed ({failed}/{total} tasks failed) in {time_str} "), false)
+					(1.0, Style::default().fg(Color::Red), format!(" Failed ({}/{} tasks failed) in {time_str} ", stats.failed, stats.total), false)
 				},
 			}
 		};
@@ -308,21 +297,21 @@ impl Terminal {
 			}
 		} else {
 			let status_icon = match app.task_state {
-				BuilState::Complete { .. } => "✓ ",
-				BuilState::Failed { .. } => "✗ ",
+				BuildState::Complete { .. } => "✓ ",
+				BuildState::Failed { .. } => "✗ ",
 				_ => " ",
 			};
 
 			let icon_style = match app.task_state {
-				BuilState::Complete { .. } => Style::default().fg(Color::Green),
-				BuilState::Failed { .. } => Style::default().fg(Color::Red),
+				BuildState::Complete { .. } => Style::default().fg(Color::Green),
+				BuildState::Failed { .. } => Style::default().fg(Color::Red),
 				_ => Style::default(),
 			};
 
 			frame.render_widget(Paragraph::new(status_icon).style(icon_style), throbber_area);
 
 			// completion time for finished tasks
-			if let BuilState::Complete { duration } = app.task_state {
+			if let BuildState::Complete { duration } = app.task_state {
 				let time_text = if duration.as_secs() >= 60 {
 					format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
 				} else {
@@ -335,8 +324,8 @@ impl Terminal {
 
 	fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 		let status_text = match &app.task_state {
-			BuilState::Idle => "Ready to run task",
-			BuilState::Running { progress, .. } => {
+			BuildState::Idle => "Ready to run task",
+			BuildState::Running { progress, .. } => {
 				if *progress < 0.33 {
 					"Starting task..."
 				} else if *progress < 0.66 {
@@ -345,15 +334,15 @@ impl Terminal {
 					"Task almost complete"
 				}
 			},
-			BuilState::Complete { .. } => "Task completed successfully",
-			BuilState::Failed { .. } => "Task failed",
+			BuildState::Complete { .. } => "Task completed successfully",
+			BuildState::Failed { .. } => "Task failed",
 		};
 
 		let status_style = match &app.task_state {
-			BuilState::Idle => Style::default().fg(Color::Gray),
-			BuilState::Running { .. } => Style::default().fg(Color::Yellow),
-			BuilState::Complete { .. } => Style::default().fg(Color::Green),
-			BuilState::Failed { .. } => Style::default().fg(Color::Red),
+			BuildState::Idle => Style::default().fg(Color::Gray),
+			BuildState::Running { .. } => Style::default().fg(Color::Yellow),
+			BuildState::Complete { .. } => Style::default().fg(Color::Green),
+			BuildState::Failed { .. } => Style::default().fg(Color::Red),
 		};
 
 		frame.render_widget(Paragraph::new(status_text).alignment(ratatui::layout::Alignment::Center).style(status_style), area);

@@ -92,7 +92,7 @@ use {
 	anyhow::Context,
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
-	common::{BuildMode, BuildStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
+	common::{BuildMode, TaskStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
 	efile::EFile,
 	extcrate::ExtensionCrate,
 	futures::future::{join_all, try_join_all},
@@ -167,7 +167,7 @@ async fn main() -> io::Result<()> {
 		let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).with_target(false).finish();
 		let _ = tracing::subscriber::set_global_default(subscriber);
 
-		let created = create_default_config_toml(&options).map_err(|e| io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+		let created = create_default_config_toml(&options).map_err(|e| io::Error::other(e.to_string()))?;
 		if created {
 			info!("Created dx-ext.toml configuration file");
 			let _ = setup_project_from_config();
@@ -213,20 +213,20 @@ async fn main() -> io::Result<()> {
 
 		match cli.command {
 			Commands::Watch(options) => {
-				let mut config = read_config().map_err(|e| io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+				let mut config = read_config().map_err(|e| io::Error::other(e.to_string()))?;
 				config.build_mode = options.mode;
 				info!("Using extension directory: {}", config.extension_directory_name);
 				if options.clean {
-					clean_dist_directory(&config).await.map_err(|e| io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+					clean_dist_directory(&config).await.map_err(|e| io::Error::other(e.to_string()))?;
 				}
-				hot_reload(config, app, cancellation_token.clone()).await.map_err(|e| io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+				hot_reload(config, app, cancellation_token.clone()).await.map_err(|e| io::Error::other(e.to_string()))?;
 			},
 			Commands::Build(options) => {
-				let mut config = read_config().map_err(|e| io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+				let mut config = read_config().map_err(|e| io::Error::other(e.to_string()))?;
 				config.build_mode = options.mode;
 				info!("Using extension directory: {}", config.extension_directory_name);
 				if options.clean {
-					clean_dist_directory(&config).await.map_err(|e| io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+					clean_dist_directory(&config).await.map_err(|e| io::Error::other(e.to_string()))?;
 				}
 				// build all crates concurrently
 				let build_futures = ExtensionCrate::iter().map(|e_crate| {
@@ -234,7 +234,7 @@ async fn main() -> io::Result<()> {
 					let task_name = e_crate.get_task_name();
 					let task_name_clone = task_name.clone();
 					async move {
-						update_task_status(&task_name, BuildStatus::InProgress).await;
+						update_task_status(&task_name, TaskStatus::InProgress).await;
 						let progress_callback = move |progress| {
 							let task = task_name.clone();
 							tokio::spawn(async move {
@@ -243,12 +243,12 @@ async fn main() -> io::Result<()> {
 						};
 						let result = e_crate.build_crate(&config, progress_callback).await;
 						let status = match &result {
-							Some(Ok(_)) => BuildStatus::Success,
+							Some(Ok(_)) => TaskStatus::Success,
 							Some(Err(e)) => {
 								error!("Failed to build {}: {:?}", e_crate.get_task_name(), e);
-								BuildStatus::Failed
+								TaskStatus::Failed
 							},
-							None => BuildStatus::Failed,
+							None => TaskStatus::Failed,
 						};
 
 						update_task_status(&task_name_clone, status).await;
@@ -288,7 +288,7 @@ async fn send_ui_message(message: EXMessage) {
 	}
 }
 
-async fn update_task_status(task_name: &str, status: BuildStatus) {
+async fn update_task_status(task_name: &str, status: TaskStatus) {
 	send_ui_message(EXMessage::UpdateTask(task_name.to_owned(), status)).await;
 }
 
@@ -299,7 +299,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, cancel_token: Cance
 	{
 		let mut app_guard = app.lock().await;
 		for e_crate in ExtensionCrate::iter() {
-			app_guard.tasks.insert(e_crate.get_task_name(), BuildStatus::Pending);
+			app_guard.tasks.insert(e_crate.get_task_name(), TaskStatus::Pending);
 		}
 	}
 	info!("Building extension crates....");
@@ -308,7 +308,7 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, cancel_token: Cance
 		let task_name = e_crate.get_task_name();
 		let task_name_clone = task_name.clone();
 		async move {
-			update_task_status(&task_name, BuildStatus::InProgress).await;
+			update_task_status(&task_name, TaskStatus::InProgress).await;
 			let progress_callback = move |progress| {
 				let task = task_name.clone();
 				tokio::spawn(async move {
@@ -317,12 +317,12 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, cancel_token: Cance
 			};
 			let result = e_crate.build_crate(&config, progress_callback).await;
 			let status = match &result {
-				Some(Ok(_)) => BuildStatus::Success,
+				Some(Ok(_)) => TaskStatus::Success,
 				Some(Err(e)) => {
 					error!("Failed to build {}: {:?}", e_crate.get_task_name(), e);
-					BuildStatus::Failed
+					TaskStatus::Failed
 				},
-				None => BuildStatus::Failed,
+				None => TaskStatus::Failed,
 			};
 			update_task_status(&task_name_clone, status).await;
 			result
@@ -453,7 +453,7 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 
 		if !builds.is_empty() {
 			for crate_type in &builds {
-				update_task_status(&crate_type.get_task_name(), BuildStatus::Pending).await;
+				update_task_status(&crate_type.get_task_name(), TaskStatus::Pending).await;
 			}
 			pending_builds.extend(builds);
 		}
@@ -476,7 +476,7 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 
 	if !builds.is_empty() {
 		let task_names: Vec<String> = builds.iter().map(|build| build.get_task_name()).collect();
-		let update_futures = task_names.iter().map(|task_name| update_task_status(task_name, BuildStatus::InProgress));
+		let update_futures = task_names.iter().map(|task_name| update_task_status(task_name, TaskStatus::InProgress));
 		join_all(update_futures).await;
 	}
 
@@ -493,8 +493,8 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 			};
 			let result = crate_type.build_crate(config, progress_callback).await;
 			let status = match &result {
-				Some(Ok(_)) => BuildStatus::Success,
-				_ => BuildStatus::Failed,
+				Some(Ok(_)) => TaskStatus::Success,
+				_ => TaskStatus::Failed,
 			};
 			update_task_status(&task_name, status).await;
 			info!("{} completed with status: {:?}", task_name, status);
@@ -522,8 +522,8 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 	for e_crate in ExtensionCrate::iter() {
 		let task_name = e_crate.get_task_name();
 		if let Some(status) = app_lock.tasks.get_mut(&task_name) {
-			if *status == BuildStatus::InProgress {
-				*status = BuildStatus::Failed;
+			if *status == TaskStatus::InProgress {
+				*status = TaskStatus::Failed;
 				info!("Finalizing {}...", task_name);
 			}
 		}

@@ -119,7 +119,8 @@ This command:
 1. Builds all extension components initially
 2. Watches for file changes in the extension directory
 3. Rebuilds and copies files as needed when changes are detected
-4. Press `Ctrl+C` or `r` to stop the watcher
+4. Press `q` to stop the watcher
+5. Prss `r` to restart the watcher
 
 ## Configuration
 

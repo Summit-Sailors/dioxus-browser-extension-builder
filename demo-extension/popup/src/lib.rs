@@ -2,9 +2,11 @@
 mod content_extractor;
 use {
 	content_extractor::{ExtractionMode, extract},
-	dioxus::prelude::*,
+	dioxus::{
+		prelude::*,
+		web::{Config, launch::launch_cfg},
+	},
 	dioxus_logger::tracing,
-	dioxus_web::Config,
 	wasm_bindgen::prelude::*,
 };
 
@@ -103,5 +105,5 @@ fn App() -> Element {
 #[wasm_bindgen(start)]
 pub fn main() {
 	dioxus_logger::init(tracing::Level::INFO).expect("failed to init logger");
-	dioxus_web::launch::launch_cfg(App, Config::default());
+	launch_cfg(App, Config::default());
 }

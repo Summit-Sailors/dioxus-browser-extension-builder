@@ -1,7 +1,7 @@
 use {
 	crate::{
 		App,
-		common::{BuilState, BuildMode, BuildStatus, ExtConfig, InitOptions, TomlConfig},
+		common::{BuildMode, BuildState, ExtConfig, InitOptions, TaskStatus, TomlConfig},
 	},
 	anyhow::{Context, Result},
 	dialoguer::{Confirm, Input},
@@ -604,28 +604,30 @@ pub(crate) async fn clean_dist_directory(config: &ExtConfig) -> Result<()> {
 // show build status after build
 pub(crate) async fn show_final_build_report(app: Arc<Mutex<App>>) {
 	let app_guard = app.lock().await;
-	let (total, _, _, _) = app_guard.get_task_stats();
-	let failed = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Failed).count();
-	let successful = app_guard.tasks.values().filter(|&&s| s == BuildStatus::Success).count();
+	let stats = app_guard.get_task_stats();
+	let failed = app_guard.tasks.values().filter(|&&s| s == TaskStatus::Failed).count();
+	let successful = app_guard.tasks.values().filter(|&&s| s == TaskStatus::Success).count();
 
 	println!("\n--- Build Summary ---");
 
 	match app_guard.task_state {
-		BuilState::Complete { duration } => {
+		BuildState::Complete { duration } => {
 			let time_str =
 				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
+			let all_tasks = stats.total;
 			println!("✅ Build completed successfully in {time_str}");
-			println!("   Total tasks: {total}, All successful");
+			println!("   Total tasks: {all_tasks}, All successful");
 		},
-		BuilState::Failed { duration } => {
+		BuildState::Failed { duration } => {
 			let time_str =
 				if duration.as_secs() >= 60 { format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60) } else { format!("{:.1}s", duration.as_secs_f32()) };
+			let all_tasks = stats.total;
 			println!("❌ Build failed in {time_str}");
-			println!("   Total tasks: {total}, Successful: {successful}, Failed: {failed}");
+			println!("   Total tasks: {all_tasks}, Successful: {successful}, Failed: {failed}");
 
 			println!("\nFailed tasks:");
 			for (task_name, status) in &app_guard.tasks {
-				if *status == BuildStatus::Failed {
+				if *status == TaskStatus::Failed {
 					println!("   ❌ {task_name}");
 				}
 			}

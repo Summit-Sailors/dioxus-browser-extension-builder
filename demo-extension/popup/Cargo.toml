@@ -9,6 +9,12 @@ repository = { workspace = true }
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.profiling]
+wasm-opt = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 
 [dependencies]
 common = { path = "../common" }
