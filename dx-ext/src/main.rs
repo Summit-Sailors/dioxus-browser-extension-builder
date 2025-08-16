@@ -92,7 +92,7 @@ use {
 	anyhow::Context,
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
-	common::{BuildMode, TaskStatus, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES},
+	common::{BuildMode, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES, TaskStatus},
 	efile::EFile,
 	extcrate::ExtensionCrate,
 	futures::future::{join_all, try_join_all},

@@ -214,6 +214,7 @@ impl App {
 
 		result
 	}
+
 	pub async fn update(&mut self, message: EXMessage) {
 		match message {
 			EXMessage::Keypress(key) => match key {
@@ -223,20 +224,18 @@ impl App {
 				KeyCode::Char('r') => {
 					self.reset().await;
 				},
-				KeyCode::Up => {
+				KeyCode::Up =>
 					if self.scroll_offset > 0 {
 						self.scroll_offset = self.scroll_offset.saturating_sub(5);
 						if !self.user_scrolled {
 							self.user_scrolled = true;
 						}
-					}
-				},
-				KeyCode::Down => {
+					},
+				KeyCode::Down =>
 					if self.scroll_offset < self.log_buffer.len().saturating_sub(5) && self.user_scrolled {
 						self.scroll_offset += 5;
 						self.user_scrolled = true;
-					}
-				},
+					},
 				_ => {},
 			},
 			EXMessage::Mouse(_mouse_event) => {},
@@ -244,11 +243,10 @@ impl App {
 			EXMessage::Tick => {
 				self.throbber_state.calc_next();
 			},
-			EXMessage::BuildProgress(progress) => {
+			EXMessage::BuildProgress(progress) =>
 				if let BuildState::Running { start_time, .. } = self.task_state {
 					self.task_state = BuildState::Running { progress, start_time }
-				}
-			},
+				},
 			EXMessage::UpdateTask(task_name, status) => {
 				self.update_task(task_name, status);
 			},

@@ -460,14 +460,13 @@ fn create_js_entry_point(base_dir: &str, filename: &str, component_type: &str) -
 	);
 
 	let js_content = match component_type {
-		"background" => {
+		"background" =>
 			r#"// Background script entry point
 import init from "/background.js";
 
 init({ module_or_path: "/background_bg.wasm" });
-      "#
-		},
-		"content" => {
+      "#,
+		"content" =>
 			r#"// Content script entry point
 (async () => {
   try {
@@ -485,8 +484,7 @@ init({ module_or_path: "/background_bg.wasm" });
     console.error("Failed to initialize WASM module:", err);
   }
 })();
-"#
-		},
+"#,
 		"popup" => &popup_entry_string,
 		_ => "",
 	};
