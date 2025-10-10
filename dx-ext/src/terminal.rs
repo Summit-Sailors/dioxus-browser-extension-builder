@@ -224,12 +224,13 @@ impl Terminal {
 		} else {
 			let stats = app.get_task_stats();
 			match &app.task_state {
-				BuildState::Idle =>
+				BuildState::Idle => {
 					if stats.pending > 0 {
 						(0.0, Style::default().fg(Color::Yellow), format!(" Preparing {} task{} ", stats.total, if stats.total != 1 { "s" } else { "" }), false)
 					} else {
 						(0.0, Style::default().fg(Color::DarkGray), format!(" Waiting to start {} task{} ", stats.total, if stats.total != 1 { "s" } else { "" }), false)
-					},
+					}
+				},
 				BuildState::Running { progress, .. } => {
 					let style = if *progress < 0.66 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::Green) };
 					let percent = (progress * 100.0).round();
@@ -324,14 +325,15 @@ impl Terminal {
 	fn render_status(frame: &mut Frame<'_>, area: Rect, app: &App) {
 		let status_text = match &app.task_state {
 			BuildState::Idle => "Ready to run task",
-			BuildState::Running { progress, .. } =>
+			BuildState::Running { progress, .. } => {
 				if *progress < 0.33 {
 					"Starting task..."
 				} else if *progress < 0.66 {
 					"Task in progress"
 				} else {
 					"Task almost complete"
-				},
+				}
+			},
 			BuildState::Complete { .. } => "Task completed successfully",
 			BuildState::Failed { .. } => "Task failed",
 		};

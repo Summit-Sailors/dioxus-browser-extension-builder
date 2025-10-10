@@ -6,12 +6,20 @@ edition = "2024"
 keywords = ["browser", "builder", "chrome", "extension", "wasm"]
 license = "MIT"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
-rust-version = "1.87.0"
+rust-version = "1.90.0"
 version = "0.1.9"
 
 
 [workspace]
-members = ["demo-extension/background", "demo-extension/common", "demo-extension/content", "demo-extension/popup", "dx-ext"]
+members = [
+  "demo-extension/background",
+  "demo-extension/common",
+  "demo-extension/content",
+  "demo-extension/options",
+  "demo-extension/popup",
+  "dx-ext",
+  "webext-api",
+]
 resolver = "2"
 
 [profile.dev.package."*"]
@@ -43,39 +51,45 @@ inherits = "dev"
 
 
 [workspace.dependencies]
+common = { path = "demo-extension/common" }
+webext-api = { path = "webext-api" }
 
-anyhow = "1.0.99"
-bon = "3.7.0"
-chrono = { version = "0.4.41", features = ["serde"] }
-futures = { version = "^0.3.31" }
+anyhow = "1.0.100"
+bon = "3.8.1"
+chrono = { version = "0.4.42", features = ["serde"] }
+dashmap = { version = "6.1.0", features = ["rayon", "serde"] }
+futures = { version = "0.3.31" }
 itertools = { version = "0.14.0" }
-num-traits = { version = "^0.2.19", features = [] }
+num-traits = { version = "0.2.19", features = [] }
 schemars = { git = "https://github.com/GREsau/schemars.git" }
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.142"
-strum = "^0.27.1"
-strum_macros = "^0.27.1"
-url = { version = "^2.5.4", features = ["serde"] }
-uuid = { version = "1.18.0", features = ["serde", "v4"] }
-validator = { version = "^0.20.0", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+strum = { version = "0.27.2", features = ["derive"] }
+thiserror = { version = "2.0.17" }
+url = { version = "2.5.7", features = ["serde"] }
+uuid = { version = "1.18.1", features = ["serde", "v4"] }
+validator = { version = "0.20.0", features = ["derive"] }
 
-dioxus = { version = "0.7.0-alpha.3", features = ["fullstack", "router"] }
-dioxus-free-icons = { version = "^0.9.0", features = ["bootstrap", "feather", "font-awesome-solid", "ionicons", "lucide"] }
-dioxus-logger = "^0.6.2"
-dioxus-sdk = { git = "https://github.com/DioxusLabs/sdk.git" }
+dioxus = { version = "0.7.0-rc.1", features = ["router"] }
+dioxus-free-icons = { git = "https://github.com/Distortedlogic/dioxus-free-icons.git", branch = "0.7.0-rc.0", features = [
+  "bootstrap",
+  "feather",
+  "font-awesome-solid",
+  "ionicons",
+  "lucide",
+] }
 
-tailwind_fuse = { version = "^0.3.2", features = ["variant"] }
+tailwind_fuse = { version = "0.3.2", features = ["variant"] }
 
 
 [workspace.lints.rust]
 unsafe_code = "deny"
 
 elided_lifetimes_in_paths = "warn"
-rust_2018_idioms = { level = "warn", priority = -1 }
-rust_2021_prelude_collisions = "warn"
+rust_2024_prelude_collisions = "warn"
 semicolon_in_expressions_from_macros = "warn"
 trivial_numeric_casts = "warn"
-unsafe_op_in_unsafe_fn = "warn"                      # `unsafe_op_in_unsafe_fn` may become the default in future Rust versions: https://github.com/rust-lang/rust/issues/71668
+unsafe_op_in_unsafe_fn = "warn"               # `unsafe_op_in_unsafe_fn` may become the default in future Rust versions: https://github.com/rust-lang/rust/issues/71668
 unused_extern_crates = "warn"
 unused_import_braces = "warn"
 unused_lifetimes = "warn"
@@ -133,6 +147,7 @@ iter_on_empty_collections = "warn"
 iter_on_single_items = "warn"
 iter_without_into_iter = "warn"
 large_digit_groups = "warn"
+large_enum_variant = "allow"
 large_include_file = "warn"
 large_stack_arrays = "warn"
 large_stack_frames = "warn"
@@ -156,9 +171,10 @@ match_same_arms = "warn"
 match_wild_err_arm = "warn"
 match_wildcard_for_single_variants = "warn"
 mem_forget = "warn"
+mismatched_target_os = "warn"
 mismatching_type_param_order = "warn"
 missing_enforced_import_renames = "warn"
-missing_errors_doc = "warn"
+missing_errors_doc = "allow"
 missing_safety_doc = "warn"
 mut_mut = "warn"
 mutex_integer = "warn"
@@ -198,7 +214,6 @@ trait_duplication_in_bounds = "warn"
 tuple_array_conversions = "warn"
 unchecked_duration_subtraction = "warn"
 undocumented_unsafe_blocks = "warn"
-unexpected_cfgs = "warn"
 unimplemented = "warn"
 uninhabited_references = "warn"
 uninlined_format_args = "warn"
@@ -224,7 +239,7 @@ let_underscore_untyped = "allow"
 missing_assert_message = "allow"
 should_panic_without_expect = "allow"
 too_many_lines = "allow"
-unwrap_used = "warn"                  # TODO: We really wanna warn on this one
+unwrap_used = "allow"                 # TODO: We really wanna warn on this one
 
 manual_range_contains = "allow"       # this one is just worse imho
 self_named_module_files = "allow"     # Disabled waiting on https://github.com/rust-lang/rust-clippy/issues/9602

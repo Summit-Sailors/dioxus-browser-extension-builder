@@ -1,74 +1,86 @@
-use {
-	common::{BackgroundMessage, ContentMessage, Message, PopupMessage},
-	wasm_bindgen::prelude::*,
-	wasm_bindgen_futures::spawn_local,
-};
+use common::{AppError, Config, ServerErrorResponse, ServerSummarizeRequest, ServerSummarizeResponse, ToBackground, ToContentScript, ToPopup};
+use reqwest::{Client, header};
+use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(start)]
-pub fn init_background() -> Result<(), JsValue> {
-	console_error_panic_hook::set_once();
+#[wasm_bindgen]
+pub fn main() {
+	wasm_logger::init(wasm_logger::Config::default());
 
-	let global = js_sys::global();
+	let browser = match webext_api::init() {
+		Ok(b) => b,
+		Err(e) => {
+			log::error!("[background] Failed to initialize: {}", e);
+			return;
+		},
+	};
 
-	let chrome = js_sys::Reflect::get(&global, &JsValue::from_str("chrome")).expect("Expected 'chrome' in global object");
-	let runtime = js_sys::Reflect::get(&chrome, &JsValue::from_str("runtime")).expect("Expected 'runtime' property on chrome object");
-	let on_message = js_sys::Reflect::get(&runtime, &JsValue::from_str("onMessage")).expect("Expected 'onMessage' property on runtime");
-	let add_listener = js_sys::Reflect::get(&on_message, &JsValue::from_str("addListener")).expect("Expected 'addListener' property on onMessage");
+	let listener = match browser.runtime().on_message::<ToBackground>() {
+		Ok(l) => l,
+		Err(e) => {
+			log::error!("[background] Failed to get listener: {}", e);
+			return;
+		},
+	};
 
-	let closure = Closure::wrap(Box::new(move |message: JsValue| {
-		spawn_local(async move {
-			handle_message(message).await;
-		});
-	}) as Box<dyn FnMut(JsValue)>);
-
-	js_sys::Reflect::apply(&add_listener.dyn_into::<js_sys::Function>()?, &on_message, &js_sys::Array::of1(closure.as_ref().unchecked_ref()))?;
-
-	closure.forget();
-
-	Ok(())
-}
-
-async fn handle_message(event: JsValue) {
-	if let Ok(message) = serde_wasm_bindgen::from_value::<Message>(event) {
-		match message {
-			Message::Popup(popup_msg) => handle_popup_message(popup_msg).await,
-			Message::Content(content_msg) => handle_content_message(content_msg).await,
-			Message::Background(_) => {},
-		}
+	if listener
+		.add_listener(move |msg, _| {
+			wasm_bindgen_futures::spawn_local(async move {
+				let browser = match webext_api::init() {
+					Ok(b) => b,
+					Err(e) => {
+						log::error!("[background:async] Failed to re-init: {}", e);
+						return;
+					},
+				};
+				if let ToBackground::SummarizeRequest = msg {
+					let result = handle_summarize_request(&browser).await;
+					let response_message = match result {
+						Ok(summary) => ToPopup::SummarizeResponse(summary),
+						Err(e) => ToPopup::Error(e),
+					};
+					if let Err(e) = browser.runtime().send_message::<_, ()>(&response_message).await {
+						log::error!("[background] Failed to send response: {}", e);
+					}
+				}
+			});
+		})
+		.is_err()
+	{
+		log::error!("[background] Failed to attach listener.");
 	}
 }
 
-async fn handle_popup_message(message: PopupMessage) {
-	match message {
-		PopupMessage::ButtonClicked(value) => {
-			web_sys::console::log_1(&format!("Button clicked with value: {}", value).into());
-			let response = Message::Background(BackgroundMessage::ProcessComplete(format!("Processed button click: {}", value)));
-			send_message(response).await;
-		},
-		PopupMessage::InputChanged(value) => {
-			web_sys::console::log_1(&format!("Input changed: {}", value).into());
-		},
-	}
+async fn get_config(browser: &webext_api::Browser) -> Result<Config, AppError> {
+	let config: Option<Config> = browser.storage().local().get("config").await.map_err(|e| AppError::ExtensionError(e.to_string()))?;
+	config.ok_or(AppError::MissingConfiguration)
 }
 
-async fn handle_content_message(message: ContentMessage) {
-	match message {
-		ContentMessage::PageLoaded(url) => {
-			web_sys::console::log_1(&format!("Page loaded: {}", url).into());
-		},
-		ContentMessage::ElementFound { selector, count } => {
-			web_sys::console::log_1(&format!("Found {} elements with selector: {}", count, selector).into());
-		},
+async fn handle_summarize_request(browser: &webext_api::Browser) -> Result<String, AppError> {
+	let config = get_config(browser).await?;
+	if config.server_url.is_empty() || config.auth_token.is_empty() {
+		return Err(AppError::MissingConfiguration);
 	}
-}
 
-async fn send_message(message: Message) {
-	let message_js = serde_wasm_bindgen::to_value(&message).unwrap();
+	let mut headers = header::HeaderMap::new();
+	headers.insert("X-Auth-Token", header::HeaderValue::from_str(&config.auth_token).map_err(|_| AppError::ExtensionError("Invalid auth token".to_string()))?);
+	let http_client = Client::builder().default_headers(headers).build().map_err(|_| AppError::ExtensionError("Failed to build client".to_string()))?;
 
-	let global = js_sys::global();
-	let browser = js_sys::Reflect::get(&global, &JsValue::from_str("chrome")).unwrap();
-	let runtime = js_sys::Reflect::get(&browser, &JsValue::from_str("runtime")).unwrap();
-	let send_message = js_sys::Reflect::get(&runtime, &JsValue::from_str("sendMessage")).unwrap();
+	let tab = browser.tabs().get_active().await.map_err(|e| AppError::ExtensionError(e.to_string()))?;
+	let tab_id = tab.id.ok_or(AppError::ExtensionError("Active tab has no ID".to_string()))?;
+	let text: String = browser.tabs().send_message(tab_id, &ToContentScript::GetPageContent).await.map_err(|_| AppError::ContentScriptError)?;
 
-	let _ = js_sys::Reflect::apply(&send_message.dyn_into::<js_sys::Function>().unwrap(), &runtime, &js_sys::Array::of1(&message_js));
+	if text.trim().is_empty() {
+		return Err(AppError::NoContent);
+	}
+
+	let res =
+		http_client.post(format!("{}/api/summarize", config.server_url)).json(&ServerSummarizeRequest { text }).send().await.map_err(|_| AppError::Network)?;
+
+	if !res.status().is_success() {
+		let err_res = res.json::<ServerErrorResponse>().await.map_err(|_| AppError::ServerError("Failed to parse error.".to_string()))?;
+		return Err(AppError::ServerError(err_res.error));
+	}
+
+	let summary_res = res.json::<ServerSummarizeResponse>().await.map_err(|_| AppError::ServerError("Failed to parse summary.".to_string()))?;
+	Ok(summary_res.summary)
 }

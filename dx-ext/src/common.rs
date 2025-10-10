@@ -1,36 +1,30 @@
 use {
 	crate::{LogLevel, efile::EFile, extcrate::ExtensionCrate},
 	clap::{ArgAction, Args, ValueHint},
+	dashmap::{DashMap, DashSet},
 	ratatui::crossterm::event::{KeyCode, MouseEvent},
 	serde::{Deserialize, Serialize},
 	std::{
-		collections::{HashMap, HashSet},
 		path::PathBuf,
 		sync::LazyLock,
 		time::{Duration, Instant, SystemTime},
 	},
-	tokio::sync::Mutex,
 };
 
-pub(crate) static PENDING_BUILDS: LazyLock<Mutex<HashSet<ExtensionCrate>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
-pub(crate) static PENDING_COPIES: LazyLock<Mutex<HashSet<EFile>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
-pub(crate) static FILE_HASHES: LazyLock<Mutex<HashMap<PathBuf, String>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-pub(crate) static FILE_TIMESTAMPS: LazyLock<Mutex<HashMap<PathBuf, SystemTime>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+pub(crate) static PENDING_BUILDS: LazyLock<DashSet<ExtensionCrate>> = LazyLock::new(DashSet::new);
+pub(crate) static PENDING_COPIES: LazyLock<DashSet<EFile>> = LazyLock::new(DashSet::new);
+pub(crate) static FILE_HASHES: LazyLock<DashMap<PathBuf, String>> = LazyLock::new(DashMap::new);
+pub(crate) static FILE_TIMESTAMPS: LazyLock<DashMap<PathBuf, SystemTime>> = LazyLock::new(DashMap::new);
 
 // task progress tracking
-#[derive(PartialEq)]
+#[derive(PartialEq, Default)]
 #[allow(dead_code)]
 pub enum TaskProgress {
+	#[default]
 	NotStarted,
 	InProgress(f64),
 	Completed,
 	Failed,
-}
-
-impl Default for TaskProgress {
-	fn default() -> Self {
-		Self::NotStarted
-	}
 }
 
 // history tracking
@@ -73,8 +67,9 @@ impl TaskStats {
 	}
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub enum TaskStatus {
+	#[default]
 	Pending,
 	InProgress,
 	Success,
@@ -101,31 +96,11 @@ pub(crate) enum EXMessage {
 	TaskProgress(String, f64),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, strum::Display, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 pub(crate) enum BuildMode {
 	Development,
 	Release,
-}
-
-impl std::fmt::Display for BuildMode {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match self {
-			Self::Development => write!(f, "development"),
-			Self::Release => write!(f, "release"),
-		}
-	}
-}
-
-impl std::str::FromStr for BuildMode {
-	type Err = String;
-
-	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		match s.to_lowercase().as_str() {
-			"development" | "dev" => Ok(Self::Development),
-			"release" | "prod" | "production" => Ok(Self::Release),
-			_ => Err(format!("Invalid build mode: {s}. Use 'development' or 'release'")),
-		}
-	}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -141,29 +116,19 @@ pub(crate) struct ExtConfig {
 
 // config struct that matches the TOML structure
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) struct TomlConfig {
-	#[serde(rename = "extension-config")]
 	pub extension_config: ExtConfigToml,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub(crate) struct ExtConfigToml {
-	#[serde(rename = "assets-directory")]
 	pub assets_directory: String,
-
-	#[serde(rename = "background-script-index-name")]
 	pub background_script_index_name: String,
-
-	#[serde(rename = "content-script-index-name")]
 	pub content_script_index_name: String,
-
-	#[serde(rename = "extension-directory-name")]
 	pub extension_directory_name: String,
-
-	#[serde(rename = "popup-name")]
 	pub popup_name: String,
-
-	#[serde(rename = "enable-incremental-builds")]
 	pub enable_incremental_builds: bool,
 }
 

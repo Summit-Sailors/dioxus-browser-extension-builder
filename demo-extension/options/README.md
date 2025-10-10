@@ -1,0 +1,3 @@
+# Browser Extension Popup Crate
+
+This is the crate responsible for generating the dioxus powered reactive UI binding. This is where a user can trigger content extraction from web pages with two extraction modes: Readability for article-focused extraction and Basic for noise-filtered text. The interface features a simple control panel with an extraction button, mode toggle, and a spacious text area that displays the extracted content. Built with responsive design principles, the popup handles extraction states gracefully, showing loading indicators during processing and error messages when things go wrong, all while communicating with the content script through Chrome's extension messaging system.

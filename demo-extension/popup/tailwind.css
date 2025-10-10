@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@keyframes highlight {
+  0% {
+    background: #8f8;
+  }
+  100% {
+    background: auto;
+  }
+}
+
+.highlight {
+  animation: highlight 1s;
+}
+
+body,
+html {
+  --font-dm-mono: "DM Mono", mono;
+  --font-poppins: "Poppins", serif;
+  @apply bg-gray-900 text-white flex flex-col h-full tracking-wide w-[500px];
+  font-family: var(--font-poppins);
+}
+
+.font-dm-mono {
+  font-family: var(--font-dm-mono);
+}
+
+/* Override specific classes */
+.bg-gray-100 {
+  @apply bg-gray-800;
+}
+
+.border {
+  @apply border-gray-700;
+}
+
+textarea,
+input {
+  @apply bg-gray-800 text-white border-gray-700;
+}
+
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
+}
+
+input[type="range"]:focus {
+  outline: none;
+}
+
+input[type="range"]::-ms-track {
+  width: 100%;
+  cursor: pointer;
+  background: transparent;
+  border-color: transparent;
+  color: transparent;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
+}
+
+input[type="range"]::-moz-range-thumb {
+  @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
+}
+
+input[type="range"]::-ms-thumb {
+  @apply cursor-pointer ring-2 ring-offset-1 ring-indigo-500 ring-offset-gray-800 h-4 w-4 rounded-full bg-gray-800 -mt-2 z-10 transition-all ease-linear hover:ring-indigo-600 focus-visible:ring-indigo-600 disabled:pointer-events-none disabled:opacity-50;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  @apply w-full h-0.5 cursor-pointer bg-indigo-400 rounded hover:bg-indigo-500 focus-visible:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+input[type="range"]::-moz-range-track {
+  @apply w-full h-0.5 cursor-pointer bg-indigo-400 rounded hover:bg-indigo-500 focus-visible:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+input[type="range"]::-ms-track {
+  @apply w-full h-0.5 cursor-pointer bg-indigo-400 rounded hover:bg-indigo-500 focus-visible:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+}

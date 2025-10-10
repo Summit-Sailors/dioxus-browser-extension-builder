@@ -1,109 +1,140 @@
-#![allow(non_snake_case)]
-mod content_extractor;
-use {
-	content_extractor::{ExtractionMode, extract},
-	dioxus::{
-		prelude::*,
-		web::{Config, launch::launch_cfg},
-	},
-	dioxus_logger::tracing,
-	wasm_bindgen::prelude::*,
+use common::{AppError, ToBackground, ToPopup};
+use dioxus::{
+	prelude::*,
+	web::{Config, launch::launch_cfg},
 };
+use wasm_bindgen::prelude::*;
 
+#[derive(Clone, PartialEq)]
+enum AppState {
+	Idle,
+	Loading,
+	Success(String),
+	Error(AppError),
+}
+
+#[wasm_bindgen]
+pub fn main() {
+	dioxus::logger::init(dioxus::logger::tracing::Level::DEBUG).expect("dioxus logger");
+	launch_cfg(App, Config::default());
+}
+
+#[component]
 fn App() -> Element {
-	let mut extracted_content = use_signal(String::new);
-	let mut error_message = use_signal(String::new);
-	let mut extraction_mode = use_signal(|| ExtractionMode::Readability);
-	let mut is_extracting = use_signal(|| false);
+	let mut app_state = use_signal(|| AppState::Idle);
 
-	// async function to handle extraction
-	let extract_content = move |_| {
-		is_extracting.set(true);
+	use_effect(move || {
+		let browser = match webext_api::init() {
+			Ok(b) => b,
+			Err(e) => {
+				app_state.set(AppState::Error(AppError::ExtensionError(e.to_string())));
+				return;
+			},
+		};
+		let listener = match browser.runtime().on_message::<ToPopup>() {
+			Ok(l) => l,
+			Err(e) => {
+				app_state.set(AppState::Error(AppError::ExtensionError(e.to_string())));
+				return;
+			},
+		};
+		if listener
+			.add_listener(move |msg, _| match msg {
+				ToPopup::SummarizeResponse(s) => app_state.set(AppState::Success(s)),
+				ToPopup::Error(e) => app_state.set(AppState::Error(e)),
+			})
+			.is_err()
+		{
+			app_state.set(AppState::Error(AppError::ExtensionError("Could not attach popup listener.".to_string())));
+		}
+	});
 
-		spawn(async move {
-			match extract(extraction_mode()).await {
-				Ok(result) => {
-					extracted_content.set(result);
-					error_message.set(String::new());
-				},
-				Err(e) => {
-					error_message.set(format!("Error: {}", e));
-					extracted_content.set(String::new());
-				},
-			}
-			is_extracting.set(false);
-		});
+	let on_summarize_click = move |_| async move {
+		app_state.set(AppState::Loading);
+		if let Ok(browser) = webext_api::init()
+			&& let Err(e) = browser.runtime().send_message::<_, ()>(&ToBackground::SummarizeRequest).await
+		{
+			app_state.set(AppState::Error(AppError::ExtensionError(e.to_string())));
+		}
 	};
 
+	let is_loading = matches!(app_state(), AppState::Loading);
+
 	rsx! {
-		div { class: "p-4 w-full max-w-lg mx-auto",
-			h1 { class: "text-2xl font-bold mb-4", "Content Extractor" }
-			div { class: "mb-4",
-				p { class: "text-sm text-gray-400 mb-2",
-					"Extracts content from the current tab using the selected mode:"
-				}
-				ul { class: "list-disc pl-5 text-sm text-gray-400",
-					li {
-						strong { "Readability: " }
-						"Attempts to identify and extract the main article content."
-					}
-					li {
-						strong { "Basic: " }
-						"Extracts all text after removing common noise elements."
-					}
+		div { class: "w-250 h-250 p-4 bg-white",
+			h1 { class: "text-lg font-bold text-center text-gray-800 mb-4", "AI Page Summarizer" }
+			button {
+				class: "w-full px-4 py-2 text-white font-semibold rounded-md shadow-sm transition-colors duration-200 ease-in-out bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed",
+				disabled: is_loading,
+				onclick: on_summarize_click,
+				if is_loading {
+					"Summarizing..."
+				} else {
+					"Summarize Page"
 				}
 			}
-			div { class: "flex gap-4 mb-4",
-				button {
-					class: "px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition disabled:opacity-50 disabled:cursor-not-allowed",
-					disabled: is_extracting(),
-					onclick: extract_content,
-					if is_extracting() {
-						"Extracting..."
-					} else {
-						"Extract Content"
-					}
-				}
-				button {
-					class: "px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed",
-					disabled: is_extracting(),
-					onclick: move |_| {
-							extraction_mode
-									.set(
-											match extraction_mode() {
-													ExtractionMode::Readability => ExtractionMode::Basic,
-													ExtractionMode::Basic => ExtractionMode::Readability,
-											},
-									);
-					},
-					"Mode: {extraction_mode()}"
-				}
-			}
-			if is_extracting() {
-				div { class: "p-4 mb-4 text-blue-700 bg-blue-100 rounded border border-blue-400",
-					"Extracting content from the active tab..."
-				}
-			}
-			if !extracted_content().is_empty() {
-				div { class: "mt-4",
-					label { class: "block mb-2 font-medium", "Extracted Content:" }
-					textarea {
-						class: "w-full h-96 p-2 border rounded font-mono text-sm",
-						readonly: true,
-						value: extracted_content.read().clone(),
-					}
-				}
-			} else if !is_extracting() && error_message().is_empty() {
-				div { class: "p-4 mt-4 text-gray-100 bg-gray-100 rounded border border-gray-300 text-center",
-					"Click \"Extract Content\" to get the content from the current tab."
+			div { class: "relative mt-4 p-3 bg-gray-50 border border-gray-200 rounded-md min-h-[120px] text-gray-700 text-sm leading-relaxed",
+				match app_state() {
+						AppState::Idle => rsx! {
+							p { class: "text-gray-500", "Click the button to generate a summary." }
+						},
+						AppState::Loading => rsx! {
+							div { class: "absolute inset-0 flex items-center justify-center",
+								div { class: "animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" }
+							}
+						},
+						AppState::Success(summary) => rsx! {
+							SummaryView { summary: summary.clone() }
+						},
+						AppState::Error(error) => rsx! {
+							p { class: "text-red-600 font-medium", "{error}" }
+							if error == AppError::MissingConfiguration {
+								p { class: "mt-2 text-sm text-gray-600",
+									"You can set them in the "
+									button {
+										class: "text-blue-600 hover:underline font-semibold bg-transparent border-none p-0 cursor-pointer",
+										onclick: move |_| {
+												spawn(async {
+														if let Ok(browser) = webext_api::init() {
+																let _ = browser.runtime().open_options_page().await;
+														}
+												});
+										},
+										"extension options."
+									}
+								}
+							}
+						},
 				}
 			}
 		}
 	}
 }
 
-#[wasm_bindgen(start)]
-pub fn main() {
-	dioxus_logger::init(tracing::Level::INFO).expect("failed to init logger");
-	launch_cfg(App, Config::default());
+#[component]
+fn SummaryView(summary: String) -> Element {
+	let mut copy_text = use_signal(|| "Copy".to_string());
+	rsx! {
+		p { "{summary}" }
+		button {
+			class: "absolute top-2 right-2 px-2 py-1 text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-md transition-all",
+			onclick: move |_| {
+					to_owned![summary];
+					async move {
+							if let Some(clipboard) = web_sys::window().map(|w| w.navigator().clipboard())
+							{
+									if wasm_bindgen_futures::JsFuture::from(clipboard.write_text(&summary))
+											.await
+											.is_ok()
+									{
+											copy_text.set("Copied!".to_owned());
+									} else {
+											copy_text.set("Failed".to_owned());
+									}
+							}
+					}
+			},
+			"{copy_text}"
+		}
+	}
 }

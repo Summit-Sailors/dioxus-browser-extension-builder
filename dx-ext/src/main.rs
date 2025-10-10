@@ -95,7 +95,7 @@ use {
 	common::{BuildMode, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES, TaskStatus},
 	efile::EFile,
 	extcrate::ExtensionCrate,
-	futures::future::{join_all, try_join_all},
+	futures::future::join_all,
 	lazy_static::lazy_static,
 	logging::{LogCallback, LogLevel, TUILogLayer},
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
@@ -165,8 +165,7 @@ async fn main() -> io::Result<()> {
 	let cli = Cli::parse();
 	if let Commands::Init(options) = cli.command {
 		let subscriber = FmtSubscriber::builder().with_timer(CustomTime).with_max_level(Level::INFO).with_file(false).with_target(false).finish();
-		let _ = tracing::subscriber::set_global_default(subscriber);
-
+		tracing::subscriber::set_global_default(subscriber).expect("Cannot set tracing subscriber");
 		let created = create_default_config_toml(&options).map_err(|e| io::Error::other(e.to_string()))?;
 		if created {
 			info!("Created dx-ext.toml configuration file");
@@ -179,16 +178,13 @@ async fn main() -> io::Result<()> {
 			tokio::spawn(send_ui_message(message));
 		}));
 		let mut terminal = Terminal::new()?;
-
 		let app = terminal.app.clone();
 		let cancellation_token = terminal.cancellation_token.clone();
 		let ui_tx = terminal.ui_tx.clone();
-
 		{
 			let mut sender = UI_SENDER.lock().await;
 			*sender = Some(ui_tx);
 		}
-
 		let tui_layer = TUILogLayer::new(log_callback as LogCallback);
 		let log_level = match &cli.command {
 			Commands::Watch(options) | Commands::Build(options) => match options.mode {
@@ -204,13 +200,11 @@ async fn main() -> io::Result<()> {
 			_ = Terminal::exit_tui();
 			original_hook(info);
 		}));
-
 		let ui_handle = tokio::spawn(async move {
 			if let Err(e) = terminal.start().await {
 				error!("UI error: {}", e);
 			}
 		});
-
 		match cli.command {
 			Commands::Watch(options) => {
 				let mut config = read_config().map_err(|e| io::Error::other(e.to_string()))?;
@@ -250,13 +244,11 @@ async fn main() -> io::Result<()> {
 							},
 							None => TaskStatus::Failed,
 						};
-
 						update_task_status(&task_name_clone, status).await;
 						result
 					}
 				});
 				join_all(build_futures).await;
-
 				let copy_futures = EFile::iter().map(|e_file| {
 					let config = config.clone();
 					async move {
@@ -333,12 +325,12 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, cancel_token: Cance
 	let copy_futures = EFile::iter().map(|e_file| {
 		let config = config.clone();
 		async move {
-			PENDING_COPIES.lock().await.insert(e_file);
+			PENDING_COPIES.insert(e_file);
 			let result = e_file.copy_file_to_dist(&config).await;
 			if let Err(e) = &result {
 				error!("Failed to copy file: {}", e);
 			} else {
-				PENDING_COPIES.lock().await.remove(&e_file);
+				PENDING_COPIES.remove(&e_file);
 			}
 			result
 		}
@@ -348,10 +340,10 @@ async fn hot_reload(config: ExtConfig, app: Arc<Mutex<App>>, cancel_token: Cance
 	let (tx, rx) = mpsc::channel(100);
 	let mut watcher = RecommendedWatcher::new(
 		move |result: NotifyResult<Event>| {
-			if let Ok(event) = result {
-				if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)) {
-					let _ = tx.blocking_send(event);
-				}
+			if let Ok(event) = result
+				&& matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_))
+			{
+				let _ = tx.blocking_send(event);
 			}
 		},
 		notify::Config::default(),
@@ -424,7 +416,6 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 		return;
 	}
 
-	let mut pending_copies = PENDING_COPIES.lock().await;
 	let copy_futures = event
 		.paths
 		.iter()
@@ -435,12 +426,15 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 		.collect::<Vec<_>>();
 
 	if !copy_futures.is_empty() {
-		pending_copies.extend(copy_futures);
+		for copy_file in copy_futures {
+			PENDING_COPIES.insert(copy_file);
+		}
 	}
 
-	let mut pending_builds = PENDING_BUILDS.lock().await;
 	if event.paths.iter().any(|path| path.to_str().unwrap_or_default().contains("api")) {
-		pending_builds.extend(ExtensionCrate::iter());
+		for ext_crate in ExtensionCrate::iter() {
+			PENDING_BUILDS.insert(ext_crate);
+		}
 	} else {
 		let builds: Vec<_> = event
 			.paths
@@ -455,19 +449,31 @@ async fn handle_event(event: &Event, config: &ExtConfig) {
 			for crate_type in &builds {
 				update_task_status(&crate_type.get_task_name(), TaskStatus::Pending).await;
 			}
-			pending_builds.extend(builds);
+			for build in builds {
+				PENDING_BUILDS.insert(build);
+			}
 		}
 	}
 }
 
 async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 	let builds = {
-		let mut pending_builds = PENDING_BUILDS.lock().await;
-		if pending_builds.is_empty() { Vec::new() } else { pending_builds.drain().collect() }
+		if PENDING_BUILDS.is_empty() {
+			Vec::new()
+		} else {
+			let pending_builds = PENDING_BUILDS.iter().map(|item| *item).collect();
+			PENDING_BUILDS.clear();
+			pending_builds
+		}
 	};
 	let copies = {
-		let mut pending_copies = PENDING_COPIES.lock().await;
-		if pending_copies.is_empty() { Vec::new() } else { pending_copies.drain().collect() }
+		if PENDING_COPIES.is_empty() {
+			Vec::new()
+		} else {
+			let pending_builds = PENDING_COPIES.iter().map(|item| *item).collect();
+			PENDING_COPIES.clear();
+			pending_builds
+		}
 	};
 
 	if builds.is_empty() && copies.is_empty() {
@@ -504,10 +510,10 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 	.await;
 
 	if !copies.is_empty() {
-		let copy_futures = copies.into_iter().map(|e_file| e_file.copy_file_to_dist(config));
-		let copy_results = try_join_all(copy_futures).await;
-		if let Err(e) = copy_results {
-			error!("Error during copy: {}", e);
+		for e_file in copies {
+			if let Err(e) = e_file.copy_file_to_dist(config).await {
+				error!("Error during copy: {}", e);
+			}
 		}
 	}
 
@@ -521,11 +527,11 @@ async fn process_pending_events(config: &ExtConfig, app: Arc<Mutex<App>>) {
 	let mut app_lock = app.lock().await;
 	for e_crate in ExtensionCrate::iter() {
 		let task_name = e_crate.get_task_name();
-		if let Some(status) = app_lock.tasks.get_mut(&task_name) {
-			if *status == TaskStatus::InProgress {
-				*status = TaskStatus::Failed;
-				info!("Finalizing {}...", task_name);
-			}
+		if let Some(status) = app_lock.tasks.get_mut(&task_name)
+			&& *status == TaskStatus::InProgress
+		{
+			*status = TaskStatus::Failed;
+			info!("Finalizing {}...", task_name);
 		}
 	}
 }

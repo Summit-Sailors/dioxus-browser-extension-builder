@@ -7,7 +7,7 @@ keywords = ["browser", "builder", "chrome", "extension", "wasm"]
 license = "MIT"
 name = "dioxus-browser-extension-builder"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
-rust-version = "1.87.0"
+rust-version = "1.90.0"
 version = "0.1.9"
 
 [[bin]]
@@ -15,38 +15,40 @@ name = "dx-ext"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.99"
-chrono = { version = "0.4.41", features = ["serde"] }
-clap = { version = "4.5.45", features = ["derive"] }
-futures = { version = "^0.3.31" }
-more-itertools = { version = "^0.1.6" }
+anyhow = { workspace = true }
+async-walkdir = "2.1.0"
+chrono = { workspace = true, features = ["serde"] }
+clap = { version = "4.5.48", features = ["derive"] }
+dashmap = { workspace = true }
+futures = { workspace = true }
+more-itertools = { version = "0.1.6" }
 notify = { version = "8.2.0" }
-serde = { version = "^1.0.219", features = ["derive"] }
-serde_json = "1.0.142"
-strum = "0.27.2"
-strum_macros = "0.27.2"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+strum = { workspace = true }
 tera = "1.20.0"
 tokio = { version = "1.47.1", features = ["full"] }
+tokio-stream = { version = "0.1.17" }
 tokio-util = { version = "0.7.16" }
-toml = "0.9.5"
-tracing = { version = "^0.1.41" }
-tracing-subscriber = { version = "^0.3.19", features = ["fmt"] }
+toml = "0.9.7"
+tracing = { version = "0.1.41" }
+tracing-subscriber = { version = "0.3.20", features = ["fmt"] }
 
-dialoguer = "^0.11.0"
-
-rayon = "^1.10.0"
+dialoguer = "0.12.0"
+rayon = "1.11.0"
+stilts = { version = "0.3.3" }
 
 blake3 = "1.8.2"
-regex = "^1.11.1"
+regex = "1.11.3"
 
-walkdir = "^2.5.0"
+walkdir = "2.5.0"
 
 num_cpus = "1.17.0"
 
 # TUI
-lazy_static = "^1.5.0"
-ratatui = { version = "^0.29.0", features = ["crossterm", "unstable"] }
-throbber-widgets-tui = "^0.8.0"
+lazy_static = "1.5.0"
+ratatui = { version = "0.29.0", features = ["crossterm", "unstable"] }
+throbber-widgets-tui = "0.9.0"
 
 [lints]
 workspace = true

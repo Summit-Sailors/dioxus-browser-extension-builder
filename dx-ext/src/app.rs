@@ -54,18 +54,14 @@ impl App {
 		if self.tasks.is_empty() {
 			return 0.0;
 		}
-
 		let total_weight: f64 = self.task_history.values().map(|task| task.weight).sum();
 		if total_weight == 0.0 {
 			return 0.0;
 		}
-
 		let mut weighted_progress = 0.0;
-
 		for (task_name, status) in &self.tasks {
 			let task_state = self.task_history.get(task_name);
 			let weight = task_state.map_or(1.0, |ts| ts.weight);
-
 			let task_progress = match status {
 				TaskStatus::Failed | TaskStatus::Success => 1.0,
 				TaskStatus::InProgress => {
@@ -73,10 +69,8 @@ impl App {
 				},
 				TaskStatus::Pending => 0.0,
 			};
-
 			weighted_progress += (weight / total_weight) * task_progress;
 		}
-
 		weighted_progress.clamp(0.0, 1.0)
 	}
 
@@ -86,7 +80,6 @@ impl App {
 		let in_progress = self.tasks.values().filter(|&&s| s == TaskStatus::InProgress).count();
 		let completed = self.tasks.values().filter(|&&s| s == TaskStatus::Success).count();
 		let failed = self.tasks.values().filter(|&&s| s == TaskStatus::Failed).count();
-
 		TaskStats { total, pending, in_progress, completed, failed }
 	}
 
@@ -95,16 +88,13 @@ impl App {
 		if !self.task_history.contains_key(&task_name) {
 			self.task_history.insert(task_name.clone(), TaskState::default());
 		}
-
 		let task_state = self.task_history.get_mut(&task_name).expect("Task state should exist after insertion");
 		let now = Instant::now();
-
 		// state transitions handling
 		match (task_state.status, status) {
 			(TaskStatus::Pending, TaskStatus::InProgress) => {
 				task_state.start_time = Some(now);
 				task_state.progress = Some(0.0);
-
 				// set overall start time if this is the first task
 				if self.overall_start_time.is_none() {
 					self.overall_start_time = Some(now);
@@ -116,10 +106,8 @@ impl App {
 			},
 			_ => {},
 		}
-
 		task_state.status = status;
 		self.tasks.insert(task_name, status);
-
 		self.update_overall_state();
 	}
 
@@ -128,9 +116,7 @@ impl App {
 			self.task_state = BuildState::Idle;
 			return;
 		}
-
 		let stats = self.get_task_stats();
-
 		// overall state based on task statistics
 		match (stats.pending, stats.in_progress, stats.failed, stats.completed) {
 			// all tasks completed successfully
@@ -138,13 +124,11 @@ impl App {
 				let duration = self.overall_start_time.map(|start| start.elapsed()).unwrap_or_default();
 				self.task_state = BuildState::Complete { duration };
 			},
-
 			// some tasks failed
 			(_, _, failed, _) if failed > 0 && stats.pending + stats.in_progress == 0 => {
 				let duration = self.overall_start_time.map(|start| start.elapsed()).unwrap_or_default();
 				self.task_state = BuildState::Failed { duration };
 			},
-
 			// tasks are running
 			(_, in_progress, _, _) if in_progress > 0 => {
 				let progress = self.calculate_overall_progress();
@@ -154,12 +138,10 @@ impl App {
 				};
 				self.task_state = BuildState::Running { progress, start_time };
 			},
-
 			// all pending
 			(pending, 0, 0, 0) if pending == stats.total => {
 				self.task_state = BuildState::Idle;
 			},
-
 			// mixed state - some completed, some pending
 			_ => {
 				let progress = self.calculate_overall_progress();
@@ -173,7 +155,6 @@ impl App {
 		if let Some(task_state) = self.task_history.get_mut(task_name) {
 			task_state.progress = Some(progress.clamp(0.0, 1.0));
 		}
-
 		// recalculate overall progress
 		if let BuildState::Running { start_time, .. } = self.task_state {
 			let overall_progress = self.calculate_overall_progress();
@@ -185,11 +166,9 @@ impl App {
 		if self.tasks.is_empty() {
 			return "No active tasks".to_owned();
 		}
-
 		let mut result = String::new();
 		let task_count = self.tasks.len();
 		let mut completed = 0;
-
 		for (task, status) in &self.tasks {
 			let status_symbol = match status {
 				TaskStatus::Pending => "⏳",
@@ -203,15 +182,12 @@ impl App {
 					"❌"
 				},
 			};
-
 			result.push_str(&format!("{status_symbol} {task} "));
-
 			// separators between tasks
 			if completed < task_count {
 				result.push_str(" | ");
 			}
 		}
-
 		result
 	}
 
@@ -224,18 +200,20 @@ impl App {
 				KeyCode::Char('r') => {
 					self.reset().await;
 				},
-				KeyCode::Up =>
+				KeyCode::Up => {
 					if self.scroll_offset > 0 {
 						self.scroll_offset = self.scroll_offset.saturating_sub(5);
 						if !self.user_scrolled {
 							self.user_scrolled = true;
 						}
-					},
-				KeyCode::Down =>
+					}
+				},
+				KeyCode::Down => {
 					if self.scroll_offset < self.log_buffer.len().saturating_sub(5) && self.user_scrolled {
 						self.scroll_offset += 5;
 						self.user_scrolled = true;
-					},
+					}
+				},
 				_ => {},
 			},
 			EXMessage::Mouse(_mouse_event) => {},
@@ -243,10 +221,11 @@ impl App {
 			EXMessage::Tick => {
 				self.throbber_state.calc_next();
 			},
-			EXMessage::BuildProgress(progress) =>
+			EXMessage::BuildProgress(progress) => {
 				if let BuildState::Running { start_time, .. } = self.task_state {
 					self.task_state = BuildState::Running { progress, start_time }
-				},
+				}
+			},
 			EXMessage::UpdateTask(task_name, status) => {
 				self.update_task(task_name, status);
 			},
@@ -267,11 +246,9 @@ impl App {
 			LogLevel::Error => ("[ERROR]", Color::Red),
 		};
 		let config = read_config().expect("Failed to read config");
-
 		if matches!(config.build_mode, BuildMode::Release) && matches!(prefix, "[DEBUG]") {
 			return;
 		}
-
 		let timestamp = chrono::Local::now().format("%H:%M:%S").to_string();
 		let log_line = Line::from(vec![
 			Span::styled(format!("{timestamp} "), Style::default().fg(Color::DarkGray)),
@@ -279,7 +256,6 @@ impl App {
 			Span::styled(format!(" {message}"), Style::default()),
 		]);
 		self.log_buffer.push(log_line);
-
 		if self.log_buffer.len() > LOG_BUFFER_SIZE {
 			let excess = self.log_buffer.len() - self.max_logs;
 			self.log_buffer.drain(0..excess);
@@ -289,23 +265,20 @@ impl App {
 	pub async fn reset(&mut self) {
 		self.log_buffer.clear();
 		self.add_log(LogLevel::Info, "Resetting application state...");
-
 		self.tasks.clear();
 		self.task_history.clear();
 		self.overall_start_time = Some(Instant::now());
 		self.task_state = BuildState::Running { progress: 0.0, start_time: Instant::now() };
 		self.throbber_state.normalize(&throbber_widgets_tui::Throbber::default());
 		self.user_scrolled = false;
-
 		self.add_log(LogLevel::Info, "Initializing tasks...");
 		for e_crate in ExtensionCrate::iter() {
-			PENDING_BUILDS.lock().await.insert(e_crate);
+			PENDING_BUILDS.insert(e_crate);
 			self.tasks.insert(e_crate.get_task_name(), TaskStatus::Pending);
 			self.task_history.insert(e_crate.get_task_name(), TaskState::default());
 		}
-
 		for e_file in EFile::iter() {
-			PENDING_COPIES.lock().await.insert(e_file);
+			PENDING_COPIES.insert(e_file);
 		}
 		self.add_log(LogLevel::Info, "Reset complete, awaiting rebuild...");
 	}

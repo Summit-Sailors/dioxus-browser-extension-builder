@@ -1,0 +1,46 @@
+[workspace.package]
+description = ""
+authors = []
+license = ""
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+members = ["{% directory_name %}/{% popup_name %}", "{% directory_name %}/content", "{% directory_name %}/background",]
+resolver = "2"
+
+[profile.dev.package."*"]
+codegen-units = 1
+debug = false
+incremental = false
+opt-level = "z"
+strip = true
+
+
+[profile.release]
+codegen-units = 1
+debug = false
+incremental = false
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
+
+[workspace.dependencies]
+wasm-bindgen = { version = "0.2.104", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.50"
+console_error_panic_hook = "0.1.7"
+gloo-utils = "0.2.0"
+js-sys = "0.3.77"
+serde-wasm-bindgen = "0.6.5"
+web-sys = { version = "0.3.77" }

@@ -1,22 +1,19 @@
-use {
-	crate::common::{ExtConfig, FILE_HASHES, FILE_TIMESTAMPS},
-	anyhow::{Context, Error, Result},
-	futures::future::try_join_all,
-	std::{
-		fs,
-		io::{self, Read},
-		path::{Path, PathBuf},
-	},
-	tracing::{debug, info, warn},
-};
+use crate::common::{ExtConfig, FILE_HASHES, FILE_TIMESTAMPS};
+use anyhow::{Context, Result};
+use async_walkdir::{DirEntry, Filtering, WalkDir};
+use futures::StreamExt;
+use std::path::{Path, PathBuf};
+use tracing::{debug, info, warn};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum_macros::EnumIter, strum_macros::Display)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter, strum::Display)]
 pub(crate) enum EFile {
 	// fixed files for Chrome extensions
 	Manifest,
 	IndexHtml,
 	IndexJs,
 	// dynamic files from config
+	OptionsHtml,
+	OptionsJs,
 	BackgroundScript,
 	ContentScript,
 	Assets,
@@ -30,6 +27,8 @@ impl EFile {
 			Self::Manifest => base_path.join("manifest.json"),
 			Self::IndexHtml => base_path.join("index.html"),
 			Self::IndexJs => base_path.join("index.js"),
+			Self::OptionsHtml => base_path.join("options.html"),
+			Self::OptionsJs => base_path.join("options.js"),
 			Self::BackgroundScript => base_path.join(&config.background_script_index_name),
 			Self::ContentScript => base_path.join(&config.content_script_index_name),
 			Self::Assets => base_path.join(&config.assets_dir),
@@ -43,158 +42,22 @@ impl EFile {
 			Self::Manifest => dist_path.join("manifest.json"),
 			Self::IndexHtml => dist_path.join("index.html"),
 			Self::IndexJs => dist_path.join("index.js"),
+			Self::OptionsHtml => dist_path.join("options.html"),
+			Self::OptionsJs => dist_path.join("options.js"),
 			Self::BackgroundScript => dist_path.join(&config.background_script_index_name),
 			Self::ContentScript => dist_path.join(&config.content_script_index_name),
 			Self::Assets => dist_path.join("assets"),
 		}
 	}
 
-	fn calculate_file_hash(path: &Path) -> Result<String> {
-		let file = fs::File::open(path).with_context(|| format!("Failed to open file for hashing: {path:?}"))?;
-		let mut reader = io::BufReader::new(file);
-		let mut hasher = blake3::Hasher::new();
-
-		let mut buffer = [0; 16384];
-		loop {
-			let bytes_read = reader.read(&mut buffer).with_context(|| format!("Failed to read file for hashing: {path:?}"))?;
-
-			if bytes_read == 0 {
-				break;
-			}
-
-			hasher.update(&buffer[..bytes_read]);
-		}
-
-		Ok(hasher.finalize().to_hex().to_string())
-	}
-
-	async fn needs_copy(src: &Path, dest: &Path, src_metadata: &fs::Metadata) -> Result<bool> {
-		let src_len = src_metadata.len();
-		let src_time = src_metadata.modified().ok();
-
-		if !dest.exists() {
-			return Ok(true);
-		}
-
-		let dest_metadata = fs::metadata(dest).ok().ok_or(Ok::<bool, Error>(true)).expect("An error occurred when getting destination metadata");
-
-		// if sizes differ, definitely needs copy
-		if src_len != dest_metadata.len() {
-			return Ok(true);
-		}
-
-		// timestamps checks
-		let timestamps = FILE_TIMESTAMPS.lock().await;
-		if let Some(src_time) = src_time {
-			if let Some(stored_time) = timestamps.get(src) {
-				if *stored_time == src_time {
-					// file hasn't changed since last check
-					return Ok(false);
-				}
-			}
-		}
-		drop(timestamps); // release lock before potentially lengthy hash calculation
-
-		// hashes comparison for final determination
-		let src_hash = Self::calculate_file_hash(src)?;
-		let dest_hash = Self::calculate_file_hash(dest)?;
-		// cache update with single lock acquisition
-		let (mut hashes, mut timestamps) = futures::join!(FILE_HASHES.lock(), FILE_TIMESTAMPS.lock());
-
-		hashes.insert(src.to_path_buf(), src_hash.clone());
-		if let Some(src_time) = src_time {
-			timestamps.insert(src.to_path_buf(), src_time);
-		}
-
-		Ok(src_hash != dest_hash)
-	}
-
-	// hash checking to avoid unnecessary copies
-	async fn copy_file(src: &Path, dest: &Path) -> Result<bool> {
-		if !src.exists() {
-			return Err(anyhow::anyhow!("Source file does not exist: {:?}", src));
-		}
-
-		let src_metadata = fs::metadata(src).with_context(|| format!("Failed to get metadata for source file: {src:?}"))?;
-		let copy_needed = Self::needs_copy(src, dest, &src_metadata).await?;
-
-		if copy_needed {
-			// create parent directories if they don't exist
-			if let Some(parent) = dest.parent() {
-				fs::create_dir_all(parent).with_context(|| format!("Failed to create parent directory: {parent:?}"))?;
-			}
-
-			fs::copy(src, dest).with_context(|| format!("Failed to copy file from {src:?} to {dest:?}"))?;
-
-			debug!("Copied file: {:?} -> {:?}", src, dest);
-			Ok(true)
-		} else {
-			debug!("Skipped copying unchanged file: {:?}", src);
-			Ok(false)
-		}
-	}
-
-	// directory copy with parallel processing and hash checking
-	async fn copy_dir_all(src: &Path, dst: &Path) -> Result<bool> {
-		if !src.exists() {
-			return Err(anyhow::anyhow!("Source directory does not exist: {:?}", src));
-		}
-
-		fs::create_dir_all(dst).with_context(|| format!("Failed to create destination directory: {dst:?}"))?;
-
-		// optimal batch size based on number of CPUs
-		let batch_size = std::cmp::max(4, num_cpus::get());
-		let mut any_copied = false;
-		// processing directory entries in a streaming fashion
-		let entries = fs::read_dir(src).with_context(|| format!("Failed to read source directory: {src:?}"))?;
-		let mut batch = Vec::with_capacity(batch_size);
-
-		for entry_result in entries {
-			let entry = entry_result?;
-			let src_path = entry.path();
-			let dst_path = dst.join(entry.file_name());
-			let file_type = entry.file_type().with_context(|| format!("Failed to get file type for: {src_path:?}"))?;
-
-			// a future for this file/directory operation
-			let future = async move {
-				if file_type.is_dir() {
-					Self::copy_dir_all(&src_path, &dst_path).await
-				} else if file_type.is_file() {
-					Self::copy_file(&src_path, &dst_path).await
-				} else {
-					debug!("Skipping non-regular file: {:?}", src_path);
-					Ok(false)
-				}
-			};
-
-			batch.push(future);
-
-			// batch is full, process it
-			if batch.len() >= batch_size {
-				let results = try_join_all(batch).await?;
-				any_copied |= results.into_iter().any(|copied| copied);
-				batch = Vec::with_capacity(batch_size);
-			}
-		}
-
-		// process any remaining items
-		if !batch.is_empty() {
-			let results = try_join_all(batch).await?;
-			any_copied |= results.into_iter().any(|copied| copied);
-		}
-
-		Ok(any_copied)
-	}
-
 	pub async fn copy_file_to_dist(self, config: &ExtConfig) -> Result<()> {
 		info!("Copying {:?}...", self);
 		let src = self.get_copy_src(config);
 		let dest = self.get_copy_dest(config);
-		let result = if src.is_dir() { Self::copy_dir_all(&src, &dest).await } else { Self::copy_file(&src, &dest).await };
-
+		let result = if src.is_dir() { copy_dir_all(&src, &dest).await } else { copy_file(&src, &dest).await };
 		match result {
 			Ok(copied) => {
-				if copied {
+				if copied != 0 {
 					info!("[SUCCESS] Copied {:?}", self);
 				} else {
 					info!("[SKIPPED] No changes for {:?}", self);
@@ -214,9 +77,109 @@ impl EFile {
 			Self::Manifest => "manifest.json".to_owned(),
 			Self::IndexHtml => "index.html".to_owned(),
 			Self::IndexJs => "index.js".to_owned(),
+			Self::OptionsHtml => "options.html".to_owned(),
+			Self::OptionsJs => "options.js".to_owned(),
 			Self::BackgroundScript => config.background_script_index_name.clone(),
 			Self::ContentScript => config.content_script_index_name.clone(),
 			Self::Assets => config.assets_dir.clone(),
 		}
 	}
+}
+
+// directory copy with parallel processing and hash checking
+async fn copy_dir_all(src: &Path, dst: &Path) -> Result<usize> {
+	let src_owned = src.to_owned();
+	let dst_owned = dst.to_owned();
+	Ok(
+		WalkDir::new(src)
+			.filter(move |entry| {
+				let src = src_owned.clone();
+				let dst = dst_owned.clone();
+				async move { file_filter(entry, src, dst).await }
+			})
+			.filter_map(|entry| async move { entry.ok() })
+			.then(async |entry| {
+				let src_path = entry.path();
+				let rel_path = src_path.strip_prefix(src).context("Failed to get relative path")?;
+				let dst_path = dst.join(rel_path);
+				copy_file(&src_path, &dst_path).await
+			})
+			.collect::<Vec<_>>()
+			.await
+			.into_iter()
+			.filter_map(|t| t.ok())
+			.sum(),
+	)
+}
+
+async fn file_filter(entry: DirEntry, src: PathBuf, dst: PathBuf) -> Filtering {
+	match entry.file_type().await {
+		Ok(ft) if ft.is_file() => {
+			let src_path = entry.path();
+			let Ok(rel_path) = src_path.strip_prefix(src).context("Failed to get relative path") else {
+				return Filtering::Ignore;
+			};
+			let dst_path = dst.join(rel_path);
+			match needs_copy(&src_path, &dst_path).await {
+				Ok(should_copy) => {
+					if should_copy {
+						Filtering::Continue
+					} else {
+						Filtering::Ignore
+					}
+				},
+				Err(_) => Filtering::Ignore,
+			}
+		},
+		_ => Filtering::Ignore,
+	}
+}
+
+async fn calculate_file_hash(path: &Path) -> Result<String> {
+	let data = tokio::fs::read(path).await.with_context(|| format!("Failed to read file: {path:?}"))?;
+	tokio::task::spawn_blocking(move || blake3::hash(&data).to_hex().to_string()).await.context("Hash calculation task failed")
+}
+
+async fn needs_copy(src: &Path, dest: &Path) -> Result<bool> {
+	let src_metadata = tokio::fs::metadata(src).await.with_context(|| format!("Failed to get metadata for source file: {src:?}"))?;
+	let src_len = src_metadata.len();
+	let src_time = src_metadata.modified().ok();
+	if !tokio::fs::try_exists(dest).await.unwrap_or(false) {
+		return Ok(true);
+	}
+	let dest_metadata = tokio::fs::metadata(dest).await.with_context(|| format!("Failed to get metadata for destination file: {dest:?}"))?;
+	// if sizes differ, definitely needs copy
+	if src_len != dest_metadata.len() {
+		return Ok(true);
+	}
+	// timestamps checks
+	if let Some(src_time) = src_time
+		&& let Some(stored_time) = FILE_TIMESTAMPS.get(src)
+		&& *stored_time == src_time
+	{
+		// file hasn't changed since last check
+		return Ok(false);
+	}
+	// hashes comparison for final determination
+	let src_hash = calculate_file_hash(src).await?;
+	let dest_hash = calculate_file_hash(dest).await?;
+	FILE_HASHES.insert(src.to_path_buf(), src_hash.clone());
+	if let Some(src_time) = src_time {
+		FILE_TIMESTAMPS.insert(src.to_path_buf(), src_time);
+	}
+
+	Ok(src_hash != dest_hash)
+}
+
+// hash checking to avoid unnecessary copies
+async fn copy_file(src: &Path, dest: &Path) -> Result<usize> {
+	if !tokio::fs::try_exists(src).await.unwrap_or(false) {
+		return Err(anyhow::anyhow!("Source file does not exist: {src:?}"));
+	}
+	if let Some(parent) = dest.parent() {
+		tokio::fs::create_dir_all(parent).await.with_context(|| format!("Failed to create parent directory: {parent:?}"))?;
+	}
+	tokio::fs::copy(src, dest).await.with_context(|| format!("Failed to copy file from {src:?} to {dest:?}"))?;
+	debug!("Copied file: {:?} -> {:?}", src, dest);
+	Ok(1)
 }

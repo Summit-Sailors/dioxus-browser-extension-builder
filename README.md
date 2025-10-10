@@ -96,7 +96,7 @@ By including `cdylib` and `rlib`, you ensure your crate is built in a way that s
 ### Known Issue: wasm-opt Bulk Memory Operations Error
 
 **Issue Description:**
-There's a compatibility issue between the Rust compiler's WebAssembly output and `wasm-opt` that affects both nightly and stable Rust versions. While the issue was first identified with Rust nightly `nightly-2025-02-18`, it has been confirmed to persist in stable Rust releases including **Rust 1.87.0**. The Rust compiler generates WebAssembly modules that use bulk memory operations (`memory.copy`, `memory.fill`), but `wasm-opt` fails to process these modules without explicit bulk memory support enabled.
+There's a compatibility issue between the Rust compiler's WebAssembly output and `wasm-opt` that affects both nightly and stable Rust versions. While the issue was first identified with Rust nightly `nightly-2025-02-18`, it has been confirmed to persist in stable Rust releases including **Rust 1.90.0**. The Rust compiler generates WebAssembly modules that use bulk memory operations (`memory.copy`, `memory.fill`), but `wasm-opt` fails to process these modules without explicit bulk memory support enabled.
 
 **Error Symptoms:**
 You may encounter errors like:
@@ -120,7 +120,7 @@ Or when trying to enable bulk memory support:
 **Background:**
 This issue affects projects using:
 
-- **Both stable and nightly Rust versions** (confirmed in Rust 1.87.0 and nightly builds from `nightly-2025-02-18` onwards)
+- **Both stable and nightly Rust versions** (confirmed in Rust 1.90.0 and nightly builds from `nightly-2025-02-18` onwards)
 - `wasm-pack` with `wasm-opt` optimization enabled
 - Dioxus, wasm-bindgen, and other WebAssembly frameworks
 

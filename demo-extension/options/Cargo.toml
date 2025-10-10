@@ -1,0 +1,47 @@
+[package]
+authors = { workspace = true }
+description = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+name = "options"
+repository = { workspace = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.profiling]
+wasm-opt = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+
+[dependencies]
+common = { workspace = true }
+webext-api = { workspace = true }
+
+gloo-timers = { version = "0.3.0" }
+gloo-utils = "0.2.0"
+wasm-bindgen = { version = "0.2.104", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.54"
+web-sys = { version = "0.3.81", features = ["Window", "console"] }
+
+readability-rs = "0.5.0"
+
+chrono = { workspace = true, features = ["wasmbind"] }
+dioxus = { workspace = true, features = ["web"] }
+dioxus-free-icons = { workspace = true }
+futures = { workspace = true }
+tailwind_fuse = { workspace = true }
+tracing-wasm = { version = "0.2.1" }
+url = { workspace = true }
+
+bon = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+strum = { workspace = true }
+uuid = { workspace = true, features = ["js", "serde", "v4"] }
+
+[build-dependencies]
+dotenvy = { git = "https://github.com/allan2/dotenvy.git", features = ["macros"] }
