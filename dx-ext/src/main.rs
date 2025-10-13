@@ -96,10 +96,14 @@ use {
 	efile::EFile,
 	extcrate::ExtensionCrate,
 	futures::future::join_all,
-	lazy_static::lazy_static,
 	logging::{LogCallback, LogLevel, TUILogLayer},
 	notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Result as NotifyResult, Watcher},
-	std::{io, path::Path, sync::Arc, time::Duration},
+	std::{
+		io,
+		path::Path,
+		sync::{Arc, LazyLock},
+		time::Duration,
+	},
 	strum::IntoEnumIterator,
 	terminal::Terminal,
 	tokio::{
@@ -116,9 +120,7 @@ use {
 	utils::{clean_dist_directory, create_default_config_toml, read_config, setup_project_from_config, show_final_build_report},
 };
 
-lazy_static! {
-	pub(crate) static ref UI_SENDER: Mutex<Option<mpsc::UnboundedSender<EXMessage>>> = Mutex::new(None);
-}
+pub(crate) static UI_SENDER: LazyLock<Mutex<Option<mpsc::UnboundedSender<EXMessage>>>> = LazyLock::new(|| Mutex::new(None));
 
 // Build options shared by Build and Watch commands
 #[derive(Args, Debug, Clone)]

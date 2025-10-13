@@ -63,12 +63,9 @@ impl Browser {
 }
 
 pub fn init() -> Result<Browser, ExtensionError> {
-	let window = web_sys::window().ok_or(ExtensionError::ApiNotFound("window".into()))?;
-
-	if let Ok(api_root) = js_sys::Reflect::get(&window, &"chrome".into()).and_then(|v| v.dyn_into::<Object>()) {
+	let global = js_sys::global();
+	if let Ok(api_root) = js_sys::Reflect::get(&global, &"chrome".into()).and_then(|v| v.dyn_into::<Object>()) {
 		Ok(Browser { api_root, browser_type: BrowserType::Chrome })
-	} else if let Ok(api_root) = js_sys::Reflect::get(&window, &"browser".into()).and_then(|v| v.dyn_into::<Object>()) {
-		Ok(Browser { api_root, browser_type: BrowserType::Firefox })
 	} else {
 		Err(ExtensionError::UnsupportedBrowser)
 	}

@@ -24,19 +24,11 @@ pub struct Config {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum ToBackground {
+pub enum ExtMessage {
 	SummarizeRequest,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ToPopup {
 	SummarizeResponse(String),
-	Error(AppError),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub enum ToContentScript {
 	GetPageContent,
+	Error(AppError),
 }
 
 #[derive(Serialize, Deserialize, Debug)]

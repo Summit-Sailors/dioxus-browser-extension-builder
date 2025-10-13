@@ -17,6 +17,7 @@ members = [
   "demo-extension/content",
   "demo-extension/options",
   "demo-extension/popup",
+  "demo-extension/server",
   "dx-ext",
   "webext-api",
 ]
@@ -52,6 +53,7 @@ inherits = "dev"
 
 [workspace.dependencies]
 common = { path = "demo-extension/common" }
+server = { path = "demo-extension/server" }
 webext-api = { path = "webext-api" }
 
 anyhow = "1.0.100"

@@ -1,86 +1,59 @@
-use common::{AppError, Config, ServerErrorResponse, ServerSummarizeRequest, ServerSummarizeResponse, ToBackground, ToContentScript, ToPopup};
-use reqwest::{Client, header};
+use common::ExtMessage;
+use common::ServerSummarizeRequest;
+use dioxus::prelude::*;
+use js_sys::Function;
+use server::summarize;
+use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
+use web_extensions_sys::chrome;
+use webext_api::error::ExtensionError;
+
+async fn listener() -> Result<(), ExtensionError> {
+	info!("handling summary call");
+	let summary = handle_summarize_request().await?;
+	info!("sending response back to the popup");
+	let message = serde_wasm_bindgen::to_value(&ExtMessage::SummarizeResponse(summary))?;
+	chrome().runtime().send_message(None, &message, None).await?;
+	Ok(())
+}
+
+fn start_listener() {
+	let closure = Closure::<dyn FnMut(JsValue, JsValue, Function)>::new(|message: JsValue, _sender: JsValue, _send_response: Function| {
+		if let Ok(ExtMessage::SummarizeRequest) = serde_wasm_bindgen::from_value(message) {
+			info!("spawning wasm local async fn");
+			wasm_bindgen_futures::spawn_local(async move {
+				info!("starting actual listener");
+				if let Err(e) = listener().await {
+					error!("{}", e.to_string());
+				}
+			});
+		}
+	});
+	chrome().runtime().on_message().add_listener(closure.as_ref().unchecked_ref());
+	closure.forget();
+}
+
+const SERVER_URL: &str = env!("SERVER_URL");
 
 #[wasm_bindgen]
 pub fn main() {
-	wasm_logger::init(wasm_logger::Config::default());
-
-	let browser = match webext_api::init() {
-		Ok(b) => b,
-		Err(e) => {
-			log::error!("[background] Failed to initialize: {}", e);
-			return;
-		},
-	};
-
-	let listener = match browser.runtime().on_message::<ToBackground>() {
-		Ok(l) => l,
-		Err(e) => {
-			log::error!("[background] Failed to get listener: {}", e);
-			return;
-		},
-	};
-
-	if listener
-		.add_listener(move |msg, _| {
-			wasm_bindgen_futures::spawn_local(async move {
-				let browser = match webext_api::init() {
-					Ok(b) => b,
-					Err(e) => {
-						log::error!("[background:async] Failed to re-init: {}", e);
-						return;
-					},
-				};
-				if let ToBackground::SummarizeRequest = msg {
-					let result = handle_summarize_request(&browser).await;
-					let response_message = match result {
-						Ok(summary) => ToPopup::SummarizeResponse(summary),
-						Err(e) => ToPopup::Error(e),
-					};
-					if let Err(e) = browser.runtime().send_message::<_, ()>(&response_message).await {
-						log::error!("[background] Failed to send response: {}", e);
-					}
-				}
-			});
-		})
-		.is_err()
-	{
-		log::error!("[background] Failed to attach listener.");
-	}
+	dioxus::logger::initialize_default();
+	info!("setting server url");
+	dioxus::fullstack::set_server_url(SERVER_URL);
+	info!("starting message listener");
+	start_listener();
 }
 
-async fn get_config(browser: &webext_api::Browser) -> Result<Config, AppError> {
-	let config: Option<Config> = browser.storage().local().get("config").await.map_err(|e| AppError::ExtensionError(e.to_string()))?;
-	config.ok_or(AppError::MissingConfiguration)
-}
-
-async fn handle_summarize_request(browser: &webext_api::Browser) -> Result<String, AppError> {
-	let config = get_config(browser).await?;
-	if config.server_url.is_empty() || config.auth_token.is_empty() {
-		return Err(AppError::MissingConfiguration);
-	}
-
-	let mut headers = header::HeaderMap::new();
-	headers.insert("X-Auth-Token", header::HeaderValue::from_str(&config.auth_token).map_err(|_| AppError::ExtensionError("Invalid auth token".to_string()))?);
-	let http_client = Client::builder().default_headers(headers).build().map_err(|_| AppError::ExtensionError("Failed to build client".to_string()))?;
-
-	let tab = browser.tabs().get_active().await.map_err(|e| AppError::ExtensionError(e.to_string()))?;
-	let tab_id = tab.id.ok_or(AppError::ExtensionError("Active tab has no ID".to_string()))?;
-	let text: String = browser.tabs().send_message(tab_id, &ToContentScript::GetPageContent).await.map_err(|_| AppError::ContentScriptError)?;
-
+async fn handle_summarize_request() -> Result<String, ExtensionError> {
+	info!("sending get content request to the content script");
+	let message = serde_wasm_bindgen::to_value(&ExtMessage::GetPageContent)?;
+	let response_js = web_extensions_sys::chrome().runtime().send_message(None, &message, None).await?;
+	let text: String = serde_wasm_bindgen::from_value(response_js)?;
+	info!("checking response is empty");
 	if text.trim().is_empty() {
-		return Err(AppError::NoContent);
+		return Err(ExtensionError::ApiError("text is empty".to_string()));
 	}
-
-	let res =
-		http_client.post(format!("{}/api/summarize", config.server_url)).json(&ServerSummarizeRequest { text }).send().await.map_err(|_| AppError::Network)?;
-
-	if !res.status().is_success() {
-		let err_res = res.json::<ServerErrorResponse>().await.map_err(|_| AppError::ServerError("Failed to parse error.".to_string()))?;
-		return Err(AppError::ServerError(err_res.error));
-	}
-
-	let summary_res = res.json::<ServerSummarizeResponse>().await.map_err(|_| AppError::ServerError("Failed to parse summary.".to_string()))?;
+	info!("sending content response to BE server");
+	let summary_res = summarize(ServerSummarizeRequest { text }).await.map_err(|e| ExtensionError::ApiError(e.to_string()))?;
 	Ok(summary_res.summary)
 }

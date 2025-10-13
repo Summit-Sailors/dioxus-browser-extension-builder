@@ -37,11 +37,13 @@ tracing-wasm = { version = "0.2.1" }
 url = { workspace = true }
 
 bon = { workspace = true }
-
 serde = { workspace = true }
+serde-wasm-bindgen = { version = "0.6.5" }
 serde_json = { workspace = true }
 strum = { workspace = true }
 uuid = { workspace = true, features = ["js", "serde", "v4"] }
+web-extensions = { version = "0.3.0" }
+web-extensions-sys = { version = "0.4.2" }
 
 [build-dependencies]
 dotenvy = { git = "https://github.com/allan2/dotenvy.git", features = ["macros"] }

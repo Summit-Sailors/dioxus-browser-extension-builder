@@ -19,3 +19,7 @@ ext-watch:
   set -euo pipefail
   cargo run -p dioxus-browser-extension-builder watch
   
+demo-server:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  dx serve --server -p server

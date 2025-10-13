@@ -17,15 +17,18 @@ wasm-opt = false
 
 [dependencies]
 common = { workspace = true }
+server = { workspace = true }
 webext-api = { workspace = true }
 
 chrono = { workspace = true, features = ["wasmbind"] }
 futures = { workspace = true }
 
+web-extensions = { version = "0.3.0" }
+web-extensions-sys = { version = "0.4.2" }
+
 console_error_panic_hook = "0.1.7"
 gloo-utils = "0.2.0"
 js-sys = "0.3.81"
-log = "0.4.28"
 reqwest = { version = "0.12.23", features = ["json"] }
 serde-wasm-bindgen = "0.6.5"
 tracing-wasm = { version = "0.2.1" }
@@ -37,11 +40,11 @@ web-sys = { version = "0.3.81", features = ["Document", "Element", "EventTarget"
 anyhow = { workspace = true }
 bon = { workspace = true }
 
+dioxus = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 strum = { workspace = true }
 uuid = { workspace = true, features = ["js", "serde", "v4"] }
-
 
 [build-dependencies]
 dotenvy = { git = "https://github.com/allan2/dotenvy.git", features = ["macros"] }

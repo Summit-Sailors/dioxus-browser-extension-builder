@@ -136,9 +136,14 @@ impl ExtensionCrate {
 				progress_callback_clone(0.0);
 			}
 			let mut cmd = Command::new("wasm-pack");
-			cmd.arg("build").arg("--no-pack").arg("--no-typescript").arg("--target").arg("web").arg("--out-dir").arg("../dist");
+			cmd.arg("build").arg("--no-pack").arg("--no-typescript").arg("--out-dir").arg("../dist");
 			if matches!(config.build_mode, BuildMode::Release) {
 				cmd.arg("--release");
+			}
+			if crate_name == "background" {
+				cmd.arg("--target").arg("no-modules");
+			} else {
+				cmd.arg("--target").arg("web");
 			}
 			cmd.arg(format!("{extension_dir}/{crate_name}"));
 			cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
