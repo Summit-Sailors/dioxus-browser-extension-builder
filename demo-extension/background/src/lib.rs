@@ -64,9 +64,11 @@ async fn call_summarize_api(req: ServerSummarizeRequest) -> Result<ServerSummari
 
 async fn handle_summarize_request() -> Result<String, ExtensionError> {
 	info!("sending get content request to the content script");
-	let message = serde_wasm_bindgen::to_value(&ExtMessage::GetPageContent)?;
-	let response_js = web_extensions_sys::chrome().runtime().send_message(None, &message, None).await?;
-	let text: String = serde_wasm_bindgen::from_value(response_js)?;
+	let browser = webext_api::init()?;
+	let tab = browser.tabs().get_active().await?;
+	let tab_id = tab.id.ok_or_else(|| ExtensionError::ApiError("No tab id".to_string()))?;
+	info!("sending to tab {}", tab_id);
+	let text: String = browser.tabs().send_message(tab_id, &ExtMessage::GetPageContent).await?;
 	info!("checking response is empty");
 	if text.trim().is_empty() {
 		return Err(ExtensionError::ApiError("text is empty".to_string()));

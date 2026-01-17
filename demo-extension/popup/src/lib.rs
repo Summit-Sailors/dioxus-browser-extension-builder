@@ -22,6 +22,7 @@ pub fn main() {
 
 fn start_message_listener(mut app_state: Signal<AppState>) {
 	let listener = Closure::wrap(Box::new(move |message: JsValue, _sender: web_extensions_sys::MessageSender, _send_response: js_sys::Function| {
+		info!("[popup] Received message: {:?}", message);
 		match serde_wasm_bindgen::from_value::<ExtMessage>(message) {
 			Ok(msg) => match msg {
 				ExtMessage::SummarizeResponse(s) => app_state.set(AppState::Success(s)),

@@ -85,7 +85,7 @@ ext-watch:
 demo-server:
   #!/usr/bin/env bash
   set -euo pipefail
-  dx serve --server -p server
+  dx serve --server -p server --port 8071
 
 # Check all workspace members compile
 check:
