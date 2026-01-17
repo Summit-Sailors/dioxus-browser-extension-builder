@@ -1,20 +1,24 @@
 [package]
 authors = { workspace = true }
+categories = ["wasm", "web-programming"]
 description = "A universal, type-safe Rust API for building high-end browser extensions."
 edition = { workspace = true }
+keywords = ["browser", "chrome", "extension", "wasm", "webextension"]
 license = { workspace = true }
 name = "webext-api"
-version = "0.1.0"
+readme = "README.md"
+repository = { workspace = true }
+version = "0.1.10"
 
 [dependencies]
 async-trait = "0.1.89"
-js-sys = "0.3.81"
+js-sys = "0.3.85"
 serde = { version = "1.0.228", features = ["derive"] }
 serde-wasm-bindgen = "0.6.5"
 thiserror = "2.0.17"
-wasm-bindgen = { version = "0.2.104", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.54"
-web-sys = { version = "0.3.81", features = ["Navigator", "Window", "console"] }
+wasm-bindgen = { version = "0.2.108", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.58"
+web-sys = { version = "0.3.85", features = ["Navigator", "Window", "console"] }
 
 
 [features]

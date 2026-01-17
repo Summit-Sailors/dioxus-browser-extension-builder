@@ -6,8 +6,8 @@ edition = "2024"
 keywords = ["browser", "builder", "chrome", "extension", "wasm"]
 license = "MIT"
 repository = "https://github.com/Summit-Sailors/dioxus-browser-extension-builder"
-rust-version = "1.90.0"
-version = "0.1.9"
+rust-version = "1.91.0"
+version = "0.1.10"
 
 
 [workspace]
@@ -57,23 +57,23 @@ server = { path = "demo-extension/server" }
 webext-api = { path = "webext-api" }
 
 anyhow = "1.0.100"
-bon = "3.8.1"
-chrono = { version = "0.4.42", features = ["serde"] }
+bon = "3.8.2"
+chrono = { version = "0.4.43", features = ["serde"] }
 dashmap = { version = "6.1.0", features = ["rayon", "serde"] }
 futures = { version = "0.3.31" }
 itertools = { version = "0.14.0" }
 num-traits = { version = "0.2.19", features = [] }
 schemars = { git = "https://github.com/GREsau/schemars.git" }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+serde_json = "1.0.149"
 strum = { version = "0.27.2", features = ["derive"] }
 thiserror = { version = "2.0.17" }
-url = { version = "2.5.7", features = ["serde"] }
-uuid = { version = "1.18.1", features = ["serde", "v4"] }
+url = { version = "2.5.8", features = ["serde"] }
+uuid = { version = "1.19.0", features = ["serde", "v4"] }
 validator = { version = "0.20.0", features = ["derive"] }
 
-dioxus = { version = "0.7.0-rc.1", features = ["router"] }
-dioxus-free-icons = { git = "https://github.com/Distortedlogic/dioxus-free-icons.git", branch = "0.7.0-rc.0", features = [
+dioxus = { version = "0.7.3", features = ["router"] }
+dioxus-free-icons = { version = "0.10.0", features = [
   "bootstrap",
   "feather",
   "font-awesome-solid",

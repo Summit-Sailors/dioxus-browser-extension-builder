@@ -10,7 +10,6 @@ use {
 		layout::{Constraint, Direction, Layout, Rect},
 		prelude::CrosstermBackend,
 		style::{Color, Modifier, Style},
-		symbols,
 		text::{Line, Span},
 		widgets::{Block, BorderType, Borders, LineGauge, List, ListItem, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 	},
@@ -272,7 +271,7 @@ impl Terminal {
 		let icon_area = split_areas[2];
 
 		// the progress gauge with label
-		frame.render_widget(LineGauge::default().filled_style(style).line_set(symbols::line::THICK).ratio(progress).label(label), gauge_area);
+		frame.render_widget(LineGauge::default().filled_style(style).filled_symbol("━").unfilled_symbol("━").ratio(progress).label(label), gauge_area);
 
 		let split_icon_areas = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Length(3), Constraint::Fill(1)]).split(icon_area);
 		let throbber_area = split_icon_areas[0];

@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(feature = "server")]
+use dioxus::prelude::*;
+
 #[derive(Serialize, Deserialize, Debug, Error, Clone, PartialEq)]
 pub enum AppError {
 	#[error("Configuration is missing. Please set your Server URL and Auth Token in the extension options.")]
@@ -31,12 +34,12 @@ pub enum ExtMessage {
 	Error(AppError),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ServerSummarizeRequest {
 	pub text: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ServerSummarizeResponse {
 	pub summary: String,
 }
@@ -44,4 +47,15 @@ pub struct ServerSummarizeResponse {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ServerErrorResponse {
 	pub error: String,
+}
+
+#[cfg(feature = "server")]
+#[server(endpoint = "/api/summarize")]
+pub async fn summarize(req: ServerSummarizeRequest) -> Result<ServerSummarizeResponse, ServerFnError> {
+	dioxus::logger::tracing::info!("Received text to summarize: {:?}", req.text);
+	let summary = format!(
+		"This is a hardcoded summary for the text: '{}...'",
+		req.text.chars().take(20).collect::<String>()
+	);
+	Ok(ServerSummarizeResponse { summary })
 }

@@ -1,8 +1,6 @@
-use common::ExtMessage;
-use common::ServerSummarizeRequest;
+use common::{ExtMessage, ServerSummarizeRequest, ServerSummarizeResponse};
 use dioxus::prelude::*;
 use js_sys::Function;
-use server::summarize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_extensions_sys::chrome;
@@ -38,10 +36,30 @@ const SERVER_URL: &str = env!("SERVER_URL");
 #[wasm_bindgen]
 pub fn main() {
 	dioxus::logger::initialize_default();
-	info!("setting server url");
-	dioxus::fullstack::set_server_url(SERVER_URL);
-	info!("starting message listener");
+	info!("background script initialized with server URL: {}", SERVER_URL);
 	start_listener();
+}
+
+async fn call_summarize_api(req: ServerSummarizeRequest) -> Result<ServerSummarizeResponse, ExtensionError> {
+	let url = format!("{}/api/summarize", SERVER_URL);
+	let client = reqwest::Client::new();
+	let response = client
+		.post(&url)
+		.json(&req)
+		.send()
+		.await
+		.map_err(|e| ExtensionError::ApiError(format!("Request failed: {}", e)))?;
+
+	if !response.status().is_success() {
+		let status = response.status();
+		let body = response.text().await.unwrap_or_default();
+		return Err(ExtensionError::ApiError(format!("Server error {}: {}", status, body)));
+	}
+
+	response
+		.json::<ServerSummarizeResponse>()
+		.await
+		.map_err(|e| ExtensionError::ApiError(format!("Failed to parse response: {}", e)))
 }
 
 async fn handle_summarize_request() -> Result<String, ExtensionError> {
@@ -53,7 +71,7 @@ async fn handle_summarize_request() -> Result<String, ExtensionError> {
 	if text.trim().is_empty() {
 		return Err(ExtensionError::ApiError("text is empty".to_string()));
 	}
-	info!("sending content response to BE server");
-	let summary_res = summarize(ServerSummarizeRequest { text }).await.map_err(|e| ExtensionError::ApiError(e.to_string()))?;
+	info!("sending content to server at {}", SERVER_URL);
+	let summary_res = call_summarize_api(ServerSummarizeRequest { text }).await?;
 	Ok(summary_res.summary)
 }

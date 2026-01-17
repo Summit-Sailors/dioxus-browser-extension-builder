@@ -17,7 +17,6 @@ wasm-opt = false
 
 [dependencies]
 common = { workspace = true }
-server = { workspace = true }
 webext-api = { workspace = true }
 
 chrono = { workspace = true, features = ["wasmbind"] }
@@ -28,14 +27,14 @@ web-extensions-sys = { version = "0.4.2" }
 
 console_error_panic_hook = "0.1.7"
 gloo-utils = "0.2.0"
-js-sys = "0.3.81"
-reqwest = { version = "0.12.23", features = ["json"] }
+js-sys = "0.3.85"
+reqwest = { version = "0.13.1", features = ["json"] }
 serde-wasm-bindgen = "0.6.5"
 tracing-wasm = { version = "0.2.1" }
-wasm-bindgen = { version = "0.2.104", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.54"
+wasm-bindgen = { version = "0.2.108", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.58"
 wasm-logger = { version = "0.2.0" }
-web-sys = { version = "0.3.81", features = ["Document", "Element", "EventTarget", "Location", "NodeList", "Window", "console"] }
+web-sys = { version = "0.3.85", features = ["Document", "Element", "EventTarget", "Location", "NodeList", "Window", "console"] }
 
 anyhow = { workspace = true }
 bon = { workspace = true }

@@ -92,7 +92,7 @@ use {
 	anyhow::Context,
 	app::App,
 	clap::{ArgAction, Args, Parser, Subcommand},
-	common::{BuildMode, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES, TaskStatus},
+	common::{BuildMode, BuildState, EXMessage, ExtConfig, InitOptions, PENDING_BUILDS, PENDING_COPIES, TaskStatus},
 	efile::EFile,
 	extcrate::ExtensionCrate,
 	futures::future::join_all,
@@ -224,13 +224,23 @@ async fn main() -> io::Result<()> {
 				if options.clean {
 					clean_dist_directory(&config).await.map_err(|e| io::Error::other(e.to_string()))?;
 				}
+				// Initialize tasks in the app before building
+				{
+					let mut app_guard = app.lock().await;
+					for e_crate in ExtensionCrate::iter() {
+						app_guard.tasks.insert(e_crate.get_task_name(), TaskStatus::Pending);
+					}
+				}
+				// Set start time
+				{
+					let mut app_guard = app.lock().await;
+					app_guard.overall_start_time = Some(std::time::Instant::now());
+				}
 				// build all crates concurrently
 				let build_futures = ExtensionCrate::iter().map(|e_crate| {
 					let config = config.clone();
 					let task_name = e_crate.get_task_name();
-					let task_name_clone = task_name.clone();
 					async move {
-						update_task_status(&task_name, TaskStatus::InProgress).await;
 						let progress_callback = move |progress| {
 							let task = task_name.clone();
 							tokio::spawn(async move {
@@ -246,11 +256,17 @@ async fn main() -> io::Result<()> {
 							},
 							None => TaskStatus::Failed,
 						};
-						update_task_status(&task_name_clone, status).await;
-						result
+						(e_crate.get_task_name(), status)
 					}
 				});
-				join_all(build_futures).await;
+				let results: Vec<(String, TaskStatus)> = join_all(build_futures).await;
+				// Update app with build results directly
+				{
+					let mut app_guard = app.lock().await;
+					for (task_name, status) in results {
+						app_guard.tasks.insert(task_name, status);
+					}
+				}
 				let copy_futures = EFile::iter().map(|e_file| {
 					let config = config.clone();
 					async move {
@@ -260,7 +276,18 @@ async fn main() -> io::Result<()> {
 					}
 				});
 				join_all(copy_futures).await;
-				let _ = sleep(Duration::from_millis(500)).await; // wait for full UI update
+				// Finalize task state directly before cancelling
+				{
+					let mut app_guard = app.lock().await;
+					let stats = app_guard.get_task_stats();
+					let duration = app_guard.overall_start_time.map(|s| s.elapsed()).unwrap_or_default();
+					if stats.failed > 0 {
+						app_guard.task_state = BuildState::Failed { duration };
+					} else if stats.completed == stats.total {
+						app_guard.task_state = BuildState::Complete { duration };
+					}
+				}
+				let _ = sleep(Duration::from_millis(100)).await; // brief pause for UI
 				cancellation_token.cancel();
 				let _ = ui_handle.await;
 				show_final_build_report(app).await;

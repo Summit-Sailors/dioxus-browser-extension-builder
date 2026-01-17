@@ -22,9 +22,9 @@ webext-api = { workspace = true }
 
 gloo-timers = { version = "0.3.0" }
 gloo-utils = "0.2.0"
-wasm-bindgen = { version = "0.2.104", features = ["serde-serialize"] }
-wasm-bindgen-futures = "0.4.54"
-web-sys = { version = "0.3.81", features = ["Window", "console"] }
+wasm-bindgen = { version = "0.2.108", features = ["serde-serialize"] }
+wasm-bindgen-futures = "0.4.58"
+web-sys = { version = "0.3.85", features = ["Window", "console"] }
 
 readability-rs = "0.5.0"
 
